@@ -1,5 +1,5 @@
 from typing import List, Optional
-from models import Venue
+from .models import Venue
 
 class VenueCatalog:
   def __init__(self):

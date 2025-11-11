@@ -19,8 +19,8 @@ from typing import List, Tuple
 from datetime import datetime
 
 # Import from our modules
-from transfer_generator import TransferGenerator
-from normalizer import (
+from .transfer_generator import TransferGenerator
+from .normalizer import (
     TransactionNormalizer,
     TransferInput,
     NormalizedTransaction
@@ -44,31 +44,10 @@ def generate_transfers(
     save_csv: bool = True,
     save_json: bool = True
 ) -> pd.DataFrame:
-    """
-    Generate random stablecoin transfers using the transfer generator.
-    
-    Args:
-        n_transfers: Number of transfers to generate (default: 100)
-        output_dir: Directory to save output files
-        save_csv: Whether to save CSV file
-        save_json: Whether to save JSON file
-        
-    Returns:
-        DataFrame containing generated transfers
-        
-    Output Files:
-        - generated_transfers.csv (if save_csv=True)
-        - generated_transfers.json (if save_json=True)
-    """
-    logger.info(f"="*80)
     logger.info(f"STEP 1: GENERATING {n_transfers} TRANSFERS")
-    logger.info(f"="*80)
-    
+
     # Create generator
     generator = TransferGenerator(seed=42)
-    
-    # Generate transfers
-    logger.info(f"Calling TransferGenerator.generate_batch({n_transfers})...")
     transfers_df = generator.generate_batch(
         n_transfers=n_transfers,
         time_window_days=30
@@ -107,26 +86,6 @@ def normalize_transfers(
     output_dir: str = "./",
     save_results: bool = True
 ) -> List[NormalizedTransaction]:
-    """
-    Normalize generated transfers for optimizer consumption.
-    
-    This function:
-    1. Converts DataFrame rows to TransferInput objects
-    2. Calls normalizer for each transfer
-    3. Waits for all normalizations to complete
-    4. Returns array of normalized transactions
-    
-    Args:
-        transfers_df: DataFrame from generate_transfers()
-        output_dir: Directory to save output files
-        save_results: Whether to save normalized results to CSV
-        
-    Returns:
-        List of NormalizedTransaction objects ready for optimizer
-        
-    Output Files:
-        - normalized_transactions.csv (if save_results=True)
-    """
     logger.info(f"="*80)
     logger.info(f"STEP 2: NORMALIZING {len(transfers_df)} TRANSFERS")
     logger.info(f"="*80)
@@ -232,41 +191,11 @@ def run_complete_pipeline(
     n_transfers: int = 100,
     output_dir: str = "./"
 ) -> Tuple[pd.DataFrame, List[NormalizedTransaction]]:
-    """
-    Run the complete pipeline: Generation → Normalization
-    
-    This is the main orchestration function that:
-    1. Calls generate_transfers() to create random transfers
-    2. Saves CSV and JSON files
-    3. Calls normalize_transfers() to normalize them
-    4. Waits for all normalizations to complete
-    5. Returns both the original transfers and normalized results
-    
-    Args:
-        n_transfers: Number of transfers to generate and normalize (default: 100)
-        output_dir: Directory for output files
-        
-    Returns:
-        Tuple of (original_transfers_df, normalized_transactions_list)
-        
-    Example:
-        >>> transfers_df, normalized = run_complete_pipeline(n_transfers=50)
-        >>> print(f"Generated {len(transfers_df)} transfers")
-        >>> print(f"Normalized {len(normalized)} transfers")
-        >>> # Use normalized transactions with optimizer
-        >>> for tx in normalized:
-        >>>     optimizer.optimize(tx)
-    """
     start_time = datetime.now()
     
     logger.info(f"\n{'='*80}")
-    logger.info(f"COMPLETE PIPELINE: GENERATE → NORMALIZE")
+    logger.info(f"PIPELINE: GENERATE → NORMALIZE")
     logger.info(f"{'='*80}")
-    logger.info(f"Configuration:")
-    logger.info(f"  Transfers to process: {n_transfers}")
-    logger.info(f"  Output directory: {output_dir}")
-    logger.info(f"  Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"\n")
     
     # STEP 1: Generate transfers
     transfers_df = generate_transfers(
@@ -304,97 +233,3 @@ def run_complete_pipeline(
     
     return transfers_df, normalized_transactions
 
-
-# ============================================================================
-# SIMPLE USAGE EXAMPLES
-# ============================================================================
-
-def example_usage():
-    """Examples of how to use this integration module"""
-    
-    # Example 1: Run complete pipeline with default settings (100 transfers)
-    print("\n" + "="*80)
-    print("EXAMPLE 1: Complete pipeline with defaults")
-    print("="*80)
-    transfers_df, normalized_txs = run_complete_pipeline()
-    print(f"✓ Processed {len(normalized_txs)} transfers")
-    
-    # Example 2: Generate only (no normalization)
-    print("\n" + "="*80)
-    print("EXAMPLE 2: Generate only")
-    print("="*80)
-    transfers_df = generate_transfers(n_transfers=50)
-    print(f"✓ Generated {len(transfers_df)} transfers")
-    
-    # Example 3: Normalize existing data
-    print("\n" + "="*80)
-    print("EXAMPLE 3: Normalize existing data")
-    print("="*80)
-    normalized_txs = normalize_transfers(transfers_df)
-    print(f"✓ Normalized {len(normalized_txs)} transfers")
-    
-    # Example 4: Use normalized data with optimizer (simulation)
-    print("\n" + "="*80)
-    print("EXAMPLE 4: Using normalized data (simulation)")
-    print("="*80)
-    for i, tx in enumerate(normalized_txs[:3], 1):  # Show first 3
-        print(f"\nTransaction {i}: {tx.tx_id}")
-        print(f"  Type: {tx.original_type.value}")
-        print(f"  Amount: ${tx.amount_usd:,.2f}")
-        print(f"  Weights: α={tx.cost_weight:.3f}, β={tx.speed_weight:.3f}, γ={tx.risk_weight:.3f}")
-        print(f"  Max cost: ${tx.max_total_cost_usd:.2f if tx.max_total_cost_usd else 'No limit'}")
-        print(f"  Max time: {tx.max_settlement_time_sec}s" if tx.max_settlement_time_sec else "  Max time: No limit")
-        
-        # Simulate optimizer call
-        print(f"  → Sending to optimizer...")
-        # optimizer.optimize(tx)  # Your optimizer would go here
-
-
-# ============================================================================
-# MAIN ENTRY POINT
-# ============================================================================
-
-def main():
-    """Main entry point for the integration pipeline"""
-    
-    print("\n")
-    print("╔" + "="*78 + "╗")
-    print("║" + " "*20 + "STABLECOIN TRANSFER PIPELINE" + " "*30 + "║")
-    print("║" + " "*15 + "Generation → Normalization → Optimization" + " "*22 + "║")
-    print("╚" + "="*78 + "╝")
-    print("\n")
-    
-    # Run the complete pipeline
-    transfers_df, normalized_transactions = run_complete_pipeline(
-        n_transfers=100,  # ← Change this number to generate more/fewer transfers
-        output_dir="./"
-    )
-    
-    # At this point, you have:
-    # 1. transfers_df: Original generated transfers (DataFrame)
-    # 2. normalized_transactions: List of NormalizedTransaction objects
-    
-    # You can now use normalized_transactions with your optimizer
-    print("\n" + "="*80)
-    print("READY FOR OPTIMIZER")
-    print("="*80)
-    print(f"\nYou now have {len(normalized_transactions)} normalized transactions.")
-    print(f"Each transaction has:")
-    print(f"  • Optimization weights (α, β, γ)")
-    print(f"  • Hard constraints (max cost, max time, max slippage)")
-    print(f"  • Context flags (cross-border, high-value, fast settlement)")
-    print(f"\nExample usage with optimizer:")
-    print(f"  for tx in normalized_transactions:")
-    print(f"      optimal_route = optimizer.optimize(tx)")
-    print(f"      execute_route(optimal_route)")
-    print("\n")
-    
-    return transfers_df, normalized_transactions
-
-
-if __name__ == "__main__":
-    # Run the main pipeline
-    main()
-    
-    # Uncomment to see usage examples:
-    # example_usage()
