@@ -31,15 +31,23 @@ class RawTransaction:
 class NormalizedTransaction:
   tx_id: str
   amount_usd: float
-  cost_weight: float
-  speed_weight: float
-  risk_weight: float
-  max_total_cost_usd: Optional[float]
-  max_settlement_time_sec: Optional[int]
-  max_slippage_bps: float
-  max_routes: int
   original_type: TransactionType
-  created_at: datetime
+  urgency_level: Optional[str] = None
+  user_tier: Optional[str] = None
+  cost_weight: float = 0.0
+  speed_weight: float = 0.0
+  risk_weight: float = 0.0
+  max_total_cost_usd: Optional[float] = None
+  max_settlement_time_sec: Optional[int] = None
+  max_slippage_bps: float = 0.0
+  max_routes: int = 0
+  is_cross_border: bool = False
+  is_high_value: bool = False
+  requires_fast_settlement: bool = False
+  compliance_tier: str = "standard"
+  region: Optional[str] = None
+  baseline_cost_bps: Optional[float] = None
+  created_at: datetime = datetime.now()
 
 
 
@@ -63,14 +71,27 @@ class OptimizationResult:
 
 @dataclass
 class Venue:
-  venue_id: str
-  venue_type: str
-  base_fee_bps: float
-  gas_cost_usd: float
-  available_liquidity_usd: float
-  slippage_coefficient: float
-  avg_execution_time_sec: int
-  avg_settlement_time_sec: int
-  reliability_score: float
-  min_order_size_usd: float
-  max_order_size_usd: float
+    """Liquidity venue characteristics"""
+    venue_id: str
+    venue_name: str
+    venue_type: str  # CEX, DEX, OTC, Bridge
+    
+    # Size limits
+    min_order_size_usd: float
+    max_order_size_usd: float
+    available_liquidity_usd: float
+    
+    # Costs
+    base_fee_bps: float  # Base fee in basis points
+    gas_cost_usd: float  # Fixed gas cost
+    slippage_coefficient: float  # Slippage factor
+    
+    # Performance
+    avg_execution_time_sec: float
+    avg_settlement_time_sec: float
+    reliability_score: float  # 0-1, higher is better
+    
+    # Constraints
+    supported_regions: List[str]
+    requires_kyc: bool
+    supports_cross_border: bool

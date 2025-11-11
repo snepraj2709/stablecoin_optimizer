@@ -18,6 +18,7 @@ from enum import Enum
 from pathlib import Path
 from models import (NormalizedTransaction, OptimizationResult)
 from catalog import VenueCatalog
+from models import Venue
 
 from pulp import (
     LpProblem, LpMinimize, LpVariable, lpSum, 
@@ -40,34 +41,6 @@ class TransactionType(Enum):
     PEER_TO_PEER = "peer_to_peer"
     LOAN_DISBURSEMENT = "loan_disbursement"
     EXCHANGE_WITHDRAWAL = "exchange_withdrawal"
-
-
-@dataclass
-class Venue:
-    """Liquidity venue characteristics"""
-    venue_id: str
-    venue_name: str
-    venue_type: str  # CEX, DEX, OTC, Bridge
-    
-    # Size limits
-    min_order_size_usd: float
-    max_order_size_usd: float
-    available_liquidity_usd: float
-    
-    # Costs
-    base_fee_bps: float  # Base fee in basis points
-    gas_cost_usd: float  # Fixed gas cost
-    slippage_coefficient: float  # Slippage factor
-    
-    # Performance
-    avg_execution_time_sec: float
-    avg_settlement_time_sec: float
-    reliability_score: float  # 0-1, higher is better
-    
-    # Constraints
-    supported_regions: List[str]
-    requires_kyc: bool
-    supports_cross_border: bool
 
 
 @dataclass
