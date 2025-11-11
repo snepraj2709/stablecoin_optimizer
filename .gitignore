@@ -4,3 +4,4 @@ __pycache__/
 generated_transfers.csv
 generated_transfers.json
 normalized_transactions.csv
+optimization_results.csv
