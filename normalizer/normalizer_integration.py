@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 def generate_transfers(
     n_transfers: int = 100,
-    output_dir: str = "./",
+    output_dir: str = "../config",
     save_csv: bool = True,
     save_json: bool = True
 ) -> pd.DataFrame:

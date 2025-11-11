@@ -1,10 +1,19 @@
 from stablecoin_router.models import RawTransaction, TransactionType
 from normalizer.normalizer_integration import (generate_transfers, normalize_transfers)
-from stablecoin_router.optimizer import TransactionReader
+from stablecoin_router.optimizer import TransactionReader, UnifiedOptimizer, ResultExporter
+import os
+from stablecoin_router.catalog import VenueCatalog
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
+
+# Configuration
+INPUT_CSV = os.path.join(CONFIG_DIR, "normalized_transactions.csv")
+OUTPUT_CSV = os.path.join(CONFIG_DIR, "optimization_results.csv")
 
 def main():
   n_transfers: int = 100
-  output_dir: str = "./"
+  output_dir: str = "./config"
   transfers_df = generate_transfers(
         n_transfers=n_transfers,
         output_dir=output_dir,
@@ -24,10 +33,6 @@ def main():
   print("READY FOR OPTIMIZER")
   print("="*80)
   print(f"\nYou now have {len(normalized_transactions)} normalized transactions.")
-    
-  # Configuration
-  INPUT_CSV = "../normalizer/normalized_transactions.csv"
-  OUTPUT_CSV = "../normalizer/optimization_results.csv"
   
   # 1. Read normalized transactions
   print("STEP 1: Reading normalized transactions from CSV")
