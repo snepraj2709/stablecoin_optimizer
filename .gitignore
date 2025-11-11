@@ -1,3 +1,6 @@
 venv
 __pycache__/
 .env
+generated_transfers.csv
+generated_transfers.json
+normalized_transactions.csv
