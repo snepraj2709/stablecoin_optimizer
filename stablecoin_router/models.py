@@ -12,7 +12,7 @@ class TransactionType(Enum):
 
 @dataclass
 class RawTransaction:
-  tx_id: str
+  transfer_id: str
   tx_type: TransactionType
   amount_usd: float
   source_currency: str
@@ -29,7 +29,7 @@ class RawTransaction:
 
 @dataclass
 class NormalizedTransaction:
-  tx_id: str
+  transfer_id: str
   amount_usd: float
   original_type: TransactionType
   urgency_level: Optional[str] = None
@@ -54,7 +54,7 @@ class NormalizedTransaction:
 
 @dataclass
 class OptimizationResult:
-  tx_id: str
+  transfer_id: str
   selected_routes: List[Tuple[str, float]]
   total_cost_usd: float
   total_cost_bps: float

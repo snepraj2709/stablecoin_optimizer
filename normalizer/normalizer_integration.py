@@ -154,7 +154,7 @@ def normalize_transfers(
         normalized_data = []
         for tx in normalized_transactions:
             normalized_data.append({
-                'tx_id': tx.tx_id,
+                'transfer_id': tx.transfer_id,
                 'amount_usd': tx.amount_usd,
                 'original_type': tx.original_type.value,
                 'urgency_level': tx.urgency_level,

@@ -58,7 +58,7 @@ class TransferInput:
 @dataclass
 class NormalizedTransaction:
     """Normalized transaction ready for optimizer"""
-    tx_id: str
+    transfer_id: str
     created_at: datetime
     amount_usd: float
     original_type: TransactionType
@@ -259,7 +259,7 @@ class TransactionNormalizer:
         
         # 9. Create normalized transaction
         normalized = NormalizedTransaction(
-            tx_id=transfer.transfer_id,
+            transfer_id=transfer.transfer_id,
             created_at=created_at,
             amount_usd=transfer.amount_source,
             original_type=tx_type,
@@ -343,7 +343,7 @@ def normalize_from_dict(transfer_dict: dict) -> NormalizedTransaction:
 
 def print_normalization_summary(normalized: NormalizedTransaction):
     """Print formatted summary of normalized transaction"""
-    print(f"\nNormalized Transaction: {normalized.tx_id}")
+    print(f"\nNormalized Transaction: {normalized.transfer_id}")
     print("="*70)
     print(f"Type:        {normalized.original_type.value}")
     print(f"Amount:      ${normalized.amount_usd:,.2f}")

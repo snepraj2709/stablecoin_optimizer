@@ -48,8 +48,8 @@ class StablecoinRouter:
         try:
             result = self.optimizer.optimize(normalized)
         except Exception as exc:  # keep narrow in real code; here we log and re-raise
-            logger.exception("Optimization failed for tx_id=%s", raw_tx.tx_id)
+            logger.exception("Optimization failed for transfer_id=%s", raw_tx.transfer_id)
             raise
 
-        logger.info("✓ Routed tx_id=%s through %d venues", result.tx_id, len(result.selected_routes))
+        logger.info("✓ Routed transfer_id=%s through %d venues", result.transfer_id, len(result.selected_routes))
         return result

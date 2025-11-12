@@ -56,7 +56,7 @@ class RouteSegment:
 @dataclass
 class OptimizationResult:
     """Complete optimization result"""
-    tx_id: str
+    transfer_id: str
     status: str  # "optimal", "feasible", "infeasible"
     
     # Route details
@@ -137,7 +137,7 @@ class TransactionReader:
                 
                 # Create transaction object
                 tx = NormalizedTransaction(
-                    tx_id=str(row['tx_id']),
+                    transfer_id=str(row['transfer_id']),
                     created_at=datetime.now(),  # Not in CSV, use current time
                     amount_usd=float(row['amount_usd']),
                     original_type=tx_type,
@@ -193,7 +193,7 @@ class UnifiedOptimizer:
         self.optimization_count += 1
         
         logger.info(f"\n{'='*80}")
-        logger.info(f"OPTIMIZING: {normalized_tx.tx_id}")
+        logger.info(f"OPTIMIZING: {normalized_tx.transfer_id}")
         logger.info(f"{'='*80}")
         logger.info(f"Amount: ${normalized_tx.amount_usd:,.2f}")
         logger.info(f"Type: {normalized_tx.original_type.value} ({normalized_tx.urgency_level})")
@@ -228,7 +228,7 @@ class UnifiedOptimizer:
         if not eligible_venues:
             logger.error(f"No eligible venues for amount ${amount}")
             return OptimizationResult(
-                tx_id=normalized_tx.tx_id,
+                transfer_id=normalized_tx.transfer_id,
                 status="infeasible",
                 route_segments=[],
                 num_routes=0,
@@ -246,7 +246,7 @@ class UnifiedOptimizer:
             )
         
         # Create optimization model
-        model = LpProblem(f"Route_{normalized_tx.tx_id}", LpMinimize)
+        model = LpProblem(f"Route_{normalized_tx.transfer_id}", LpMinimize)
         
         # Decision variables
         route_amount = {}  # Continuous: amount routed through each venue
@@ -387,7 +387,7 @@ class UnifiedOptimizer:
         else:
             logger.warning(f"Optimization failed with status: {status}")
             return OptimizationResult(
-                tx_id=normalized_tx.tx_id,
+                transfer_id=normalized_tx.transfer_id,
                 status="infeasible",
                 route_segments=[],
                 num_routes=0,
@@ -516,7 +516,7 @@ class UnifiedOptimizer:
             logger.info(f"  Route {i}: {seg.venue_name} - ${seg.amount_usd:,.2f} @ {seg.cost_bps:.2f} bps")
         
         return OptimizationResult(
-            tx_id=normalized_tx.tx_id,
+            transfer_id=normalized_tx.transfer_id,
             status=status.lower(),
             route_segments=route_segments,
             num_routes=len(route_segments),
@@ -556,7 +556,7 @@ class UnifiedOptimizer:
         successful = 0
         
         for i, tx in enumerate(transactions, 1):
-            logger.info(f"\nProcessing {i}/{len(transactions)}: {tx.tx_id}")
+            logger.info(f"\nProcessing {i}/{len(transactions)}: {tx.transfer_id}")
             
             try:
                 result = self.optimize(tx)
@@ -566,11 +566,11 @@ class UnifiedOptimizer:
                     successful += 1
                     
             except Exception as e:
-                logger.error(f"Failed to optimize {tx.tx_id}: {e}", exc_info=True)
+                logger.error(f"Failed to optimize {tx.transfer_id}: {e}", exc_info=True)
                 
                 # Create failed result
                 results.append(OptimizationResult(
-                    tx_id=tx.tx_id,
+                    transfer_id=tx.transfer_id,
                     status="error",
                     route_segments=[],
                     num_routes=0,
@@ -619,7 +619,7 @@ class ResultExporter:
         for result in results:
             # Aggregate metrics
             base_row = {
-                'tx_id': result.tx_id,
+                'transfer_id': result.transfer_id,
                 'status': result.status,
                 'num_routes': result.num_routes,
                 'total_amount_usd': result.total_amount_usd,
