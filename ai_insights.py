@@ -88,16 +88,16 @@ class AIInsightsEngine:
         
         prompt = f"""You are a treasury operations expert. Analyze the following transaction exceptions and provide specific remediation suggestions.
 
-Exceptions Data:
-{exceptions_summary}
+        Exceptions Data:
+        {exceptions_summary}
 
-For each exception category, provide:
-1. Root cause analysis
-2. Immediate remediation steps
-3. Long-term prevention strategies
-4. Priority level (High/Medium/Low)
+        For each exception category, provide:
+        1. Root cause analysis
+        2. Immediate remediation steps
+        3. Long-term prevention strategies
+        4. Priority level (High/Medium/Low)
 
-Format your response with clear sections and actionable recommendations."""
+        Format your response with clear sections and actionable recommendations."""
 
         try:
             response = openai.ChatCompletion.create(
@@ -127,17 +127,17 @@ Format your response with clear sections and actionable recommendations."""
         """
         prompt = f"""As a route optimization specialist, analyze the following routing data and provide actionable recommendations.
 
-Route Performance Data:
-{json.dumps(route_data, indent=2)}
+        Route Performance Data:
+        {json.dumps(route_data, indent=2)}
 
-Provide:
-1. Top 3 optimization opportunities
-2. Specific actions to reduce costs
-3. Actions to improve settlement times
-4. Venue selection recommendations
-5. Risk considerations
+        Provide:
+        1. Top 3 optimization opportunities
+        2. Specific actions to reduce costs
+        3. Actions to improve settlement times
+        4. Venue selection recommendations
+        5. Risk considerations
 
-Be specific and quantify potential improvements where possible."""
+        Be specific and quantify potential improvements where possible."""
 
         try:
             response = openai.ChatCompletion.create(
@@ -167,16 +167,16 @@ Be specific and quantify potential improvements where possible."""
         """
         prompt = f"""Analyze the following cost anomalies in stablecoin transactions and explain potential causes.
 
-Anomalous Transactions:
-{json.dumps(anomaly_data[:10], indent=2)}  # Limit to 10 for context
+        Anomalous Transactions:
+        {json.dumps(anomaly_data[:10], indent=2)}  # Limit to 10 for context
 
-Provide:
-1. Likely reasons for high costs
-2. Whether these are expected or concerning
-3. Recommended investigation steps
-4. Preventive measures
+        Provide:
+        1. Likely reasons for high costs
+        2. Whether these are expected or concerning
+        3. Recommended investigation steps
+        4. Preventive measures
 
-Be specific and technical where appropriate."""
+        Be specific and technical where appropriate."""
 
         try:
             response = openai.ChatCompletion.create(
@@ -206,16 +206,16 @@ Be specific and technical where appropriate."""
         """
         prompt = f"""As a CFO advisor, provide executive-level insights based on this treasury data.
 
-Summary Metrics:
-{json.dumps(summary_data, indent=2)}
+        Summary Metrics:
+        {json.dumps(summary_data, indent=2)}
 
-Provide a brief executive summary covering:
-1. Key takeaways (3-4 bullet points)
-2. Strategic implications
-3. Risk assessment
-4. Recommended focus areas
+        Provide a brief executive summary covering:
+        1. Key takeaways (3-4 bullet points)
+        2. Strategic implications
+        3. Risk assessment
+        4. Recommended focus areas
 
-Keep it strategic and suitable for C-level audience (150-200 words)."""
+        Keep it strategic and suitable for C-level audience (150-200 words)."""
 
         try:
             response = openai.ChatCompletion.create(
@@ -245,20 +245,20 @@ Keep it strategic and suitable for C-level audience (150-200 words)."""
             Comparative analysis
         """
         prompt = f"""Compare these two periods and explain significant changes.
+                Current Period:
+                {json.dumps(current_data, indent=2)}
 
-Current Period:
-{json.dumps(current_data, indent=2)}
+                Previous Period:
+                {json.dumps(previous_data, indent=2)}
 
-Previous Period:
-{json.dumps(previous_data, indent=2)}
+                Analyze:
+                1. Most significant changes and their implications
+                2. Improving vs. declining metrics
+                3. Potential causes for major shifts
+                4. Recommended actions based on trends
 
-Analyze:
-1. Most significant changes and their implications
-2. Improving vs. declining metrics
-3. Potential causes for major shifts
-4. Recommended actions based on trends
-
-Be analytical and provide context for changes."""
+                Be analytical and provide context for changes.
+                """
 
         try:
             response = openai.ChatCompletion.create(
@@ -276,221 +276,249 @@ Be analytical and provide context for changes."""
         except Exception as e:
             return f"Error comparing periods: {str(e)}"
 
-# Helper functions for data preparation
+    # Helper functions for data preparation
 
-def prepare_daily_summary_data(df, previous_df=None):
-    """
-    Prepare data dictionary for daily summary generation
-    
-    Args:
-        df: Current period dataframe
-        previous_df: Previous period dataframe for comparison
+    def prepare_daily_summary_data(df, previous_df=None):
+        """
+        Prepare data dictionary for daily summary generation
         
-    Returns:
-        Dictionary with summary metrics
-    """
-    data = {
-        'total_transactions': len(df),
-        'total_volume': df['amount_source'].sum() if 'amount_source' in df.columns else 0,
-        'avg_cost_bps': df['total_cost_bps'].mean() if 'total_cost_bps' in df.columns else 0,
-        'success_rate': (df['settlement_status'] == 'completed').sum() / len(df) * 100 if 'settlement_status' in df.columns else 0,
-        'failed_count': (df['settlement_status'] == 'failed').sum() if 'settlement_status' in df.columns else 0,
-        'avg_settlement_time': df['settlement_time_sec'].mean() / 60 if 'settlement_time_sec' in df.columns else 0,
-        'total_fees': df['total_fees_usd'].sum() if 'total_fees_usd' in df.columns else 0,
-        'compliance_rate': (df['compliance_passed'] == True).sum() / len(df) * 100 if 'compliance_passed' in df.columns else 100,
-    }
-    
-    # Add comparisons if previous data available
-    if previous_df is not None and len(previous_df) > 0:
-        prev_volume = previous_df['amount_source'].sum() if 'amount_source' in previous_df.columns else 0
-        if prev_volume > 0:
-            data['volume_change'] = ((data['total_volume'] - prev_volume) / prev_volume) * 100
+        Args:
+            df: Current period dataframe
+            previous_df: Previous period dataframe for comparison
+            
+        Returns:
+            Dictionary with summary metrics
+        """
+        data = {
+            'total_transactions': len(df),
+            'total_volume': df['amount_source'].sum() if 'amount_source' in df.columns else 0,
+            'avg_cost_bps': df['total_cost_bps'].mean() if 'total_cost_bps' in df.columns else 0,
+            'success_rate': (df['settlement_status'] == 'completed').sum() / len(df) * 100 if 'settlement_status' in df.columns else 0,
+            'failed_count': (df['settlement_status'] == 'failed').sum() if 'settlement_status' in df.columns else 0,
+            'avg_settlement_time': df['settlement_time_sec'].mean() / 60 if 'settlement_time_sec' in df.columns else 0,
+            'total_fees': df['total_fees_usd'].sum() if 'total_fees_usd' in df.columns else 0,
+            'compliance_rate': (df['compliance_passed'] == True).sum() / len(df) * 100 if 'compliance_passed' in df.columns else 100,
+        }
+        
+        # Add comparisons if previous data available
+        if previous_df is not None and len(previous_df) > 0:
+            prev_volume = previous_df['amount_source'].sum() if 'amount_source' in previous_df.columns else 0
+            if prev_volume > 0:
+                data['volume_change'] = ((data['total_volume'] - prev_volume) / prev_volume) * 100
+            else:
+                data['volume_change'] = 0
+                
+            prev_cost = previous_df['total_cost_bps'].mean() if 'total_cost_bps' in previous_df.columns else 0
+            if prev_cost > 0:
+                data['cost_change'] = ((data['avg_cost_bps'] - prev_cost) / prev_cost) * 100
+            else:
+                data['cost_change'] = 0
+                
+            prev_success = (previous_df['settlement_status'] == 'completed').sum() / len(previous_df) * 100 if 'settlement_status' in previous_df.columns else 0
+            data['success_change'] = data['success_rate'] - prev_success
         else:
             data['volume_change'] = 0
-            
-        prev_cost = previous_df['total_cost_bps'].mean() if 'total_cost_bps' in previous_df.columns else 0
-        if prev_cost > 0:
-            data['cost_change'] = ((data['avg_cost_bps'] - prev_cost) / prev_cost) * 100
-        else:
             data['cost_change'] = 0
+            data['success_change'] = 0
+        
+        # Top business types
+        if 'business_type' in df.columns:
+            top_types = df['business_type'].value_counts().head(3)
+            data['top_business_types'] = '\n'.join([f"- {k}: {v} transactions" for k, v in top_types.items()])
+        else:
+            data['top_business_types'] = 'N/A'
+        
+        # Top routes
+        if 'source_chain' in df.columns and 'dest_chain' in df.columns:
+            df['route'] = df['source_chain'].astype(str) + ' → ' + df['dest_chain'].astype(str)
+            top_routes = df['route'].value_counts().head(3)
+            data['top_routes'] = '\n'.join([f"- {k}: {v} transactions" for k, v in top_routes.items()])
+        else:
+            data['top_routes'] = 'N/A'
+        
+        return data
+
+    def identify_exceptions(df):
+        """
+        Identify exceptional transactions that need attention
+        
+        Args:
+            df: Transaction dataframe
             
-        prev_success = (previous_df['settlement_status'] == 'completed').sum() / len(previous_df) * 100 if 'settlement_status' in previous_df.columns else 0
-        data['success_change'] = data['success_rate'] - prev_success
-    else:
-        data['volume_change'] = 0
-        data['cost_change'] = 0
-        data['success_change'] = 0
-    
-    # Top business types
-    if 'business_type' in df.columns:
-        top_types = df['business_type'].value_counts().head(3)
-        data['top_business_types'] = '\n'.join([f"- {k}: {v} transactions" for k, v in top_types.items()])
-    else:
-        data['top_business_types'] = 'N/A'
-    
-    # Top routes
-    if 'source_chain' in df.columns and 'dest_chain' in df.columns:
-        df['route'] = df['source_chain'].astype(str) + ' → ' + df['dest_chain'].astype(str)
-        top_routes = df['route'].value_counts().head(3)
-        data['top_routes'] = '\n'.join([f"- {k}: {v} transactions" for k, v in top_routes.items()])
-    else:
-        data['top_routes'] = 'N/A'
-    
-    return data
-
-def identify_exceptions(df):
-    """
-    Identify exceptional transactions that need attention
-    
-    Args:
-        df: Transaction dataframe
+        Returns:
+            List of exception dictionaries
+        """
+        exceptions = []
         
-    Returns:
-        List of exception dictionaries
-    """
-    exceptions = []
-    
-    # Failed transactions
-    if 'settlement_status' in df.columns:
-        failed = df[df['settlement_status'] == 'failed']
-        if len(failed) > 0:
-            exceptions.append({
-                'type': 'Failed Transactions',
-                'count': len(failed),
-                'severity': 'High',
-                'details': f"{len(failed)} transactions failed",
-                'sample_ids': failed['transfer_id'].head(5).tolist() if 'transfer_id' in failed.columns else []
-            })
-    
-    # Compliance failures
-    if 'compliance_passed' in df.columns:
-        compliance_fail = df[df['compliance_passed'] == False]
-        if len(compliance_fail) > 0:
-            exceptions.append({
-                'type': 'Compliance Failures',
-                'count': len(compliance_fail),
-                'severity': 'High',
-                'details': f"{len(compliance_fail)} transactions failed compliance",
-                'sample_ids': compliance_fail['transfer_id'].head(5).tolist() if 'transfer_id' in compliance_fail.columns else []
-            })
-    
-    # High cost transactions (exceeding max acceptable fee)
-    if 'total_cost_bps' in df.columns and 'max_acceptable_fee_bps' in df.columns:
-        high_cost = df[df['total_cost_bps'] > df['max_acceptable_fee_bps']]
-        if len(high_cost) > 0:
-            avg_excess = (high_cost['total_cost_bps'] - high_cost['max_acceptable_fee_bps']).mean()
-            exceptions.append({
-                'type': 'Excessive Costs',
-                'count': len(high_cost),
-                'severity': 'Medium',
-                'details': f"{len(high_cost)} transactions exceeded fee limits by avg {avg_excess:.1f} BPS",
-                'sample_ids': high_cost['transfer_id'].head(5).tolist() if 'transfer_id' in high_cost.columns else []
-            })
-    
-    # Slow transactions (significantly above average)
-    if 'settlement_time_sec' in df.columns:
-        avg_time = df['settlement_time_sec'].mean()
-        std_time = df['settlement_time_sec'].std()
-        slow_txns = df[df['settlement_time_sec'] > (avg_time + 2 * std_time)]
-        if len(slow_txns) > 0:
-            exceptions.append({
-                'type': 'Slow Settlements',
-                'count': len(slow_txns),
-                'severity': 'Medium',
-                'details': f"{len(slow_txns)} transactions took >2σ longer than average",
-                'avg_time': slow_txns['settlement_time_sec'].mean() / 60,
-                'sample_ids': slow_txns['transfer_id'].head(5).tolist() if 'transfer_id' in slow_txns.columns else []
-            })
-    
-    # Pending transactions (stuck)
-    if 'settlement_status' in df.columns and 'timestamp' in df.columns:
-        pending = df[df['settlement_status'] == 'pending']
-        if len(pending) > 0:
-            # Check if any are old (>1 hour)
-            now = df['timestamp'].max()
-            old_pending = pending[pending['timestamp'] < (now - timedelta(hours=1))]
-            if len(old_pending) > 0:
+        # Failed transactions
+        if 'settlement_status' in df.columns:
+            failed = df[df['settlement_status'] == 'failed']
+            if len(failed) > 0:
                 exceptions.append({
-                    'type': 'Stuck Pending Transactions',
-                    'count': len(old_pending),
+                    'type': 'Failed Transactions',
+                    'count': len(failed),
                     'severity': 'High',
-                    'details': f"{len(old_pending)} transactions pending for >1 hour",
-                    'sample_ids': old_pending['transfer_id'].head(5).tolist() if 'transfer_id' in old_pending.columns else []
+                    'details': f"{len(failed)} transactions failed",
+                    'sample_ids': failed['transfer_id'].head(5).tolist() if 'transfer_id' in failed.columns else []
                 })
-    
-    return exceptions
-
-def identify_cost_anomalies(df, threshold_percentile=95):
-    """
-    Identify transactions with anomalously high costs
-    
-    Args:
-        df: Transaction dataframe
-        threshold_percentile: Percentile threshold for anomaly detection
         
-    Returns:
-        List of anomalous transaction dictionaries
-    """
-    if 'total_cost_bps' not in df.columns:
-        return []
-    
-    threshold = df['total_cost_bps'].quantile(threshold_percentile / 100)
-    anomalies = df[df['total_cost_bps'] > threshold]
-    
-    anomaly_list = []
-    for _, row in anomalies.head(20).iterrows():  # Limit to 20
-        anomaly = {
-            'transfer_id': row.get('transfer_id', 'N/A'),
-            'cost_bps': row.get('total_cost_bps', 0),
-            'amount': row.get('amount_source', 0),
-            'business_type': row.get('business_type', 'N/A'),
-            'route': f"{row.get('source_chain', 'N/A')} → {row.get('dest_chain', 'N/A')}",
-            'routing_hops': row.get('routing_hops', 0),
-            'gas_cost': row.get('gas_cost_usd', 0),
-            'slippage': row.get('slippage_cost_usd', 0)
+        # Compliance failures
+        if 'compliance_passed' in df.columns:
+            compliance_fail = df[df['compliance_passed'] == False]
+            if len(compliance_fail) > 0:
+                exceptions.append({
+                    'type': 'Compliance Failures',
+                    'count': len(compliance_fail),
+                    'severity': 'High',
+                    'details': f"{len(compliance_fail)} transactions failed compliance",
+                    'sample_ids': compliance_fail['transfer_id'].head(5).tolist() if 'transfer_id' in compliance_fail.columns else []
+                })
+        
+        # High cost transactions (exceeding max acceptable fee)
+        if 'total_cost_bps' in df.columns and 'max_acceptable_fee_bps' in df.columns:
+            high_cost = df[df['total_cost_bps'] > df['max_acceptable_fee_bps']]
+            if len(high_cost) > 0:
+                avg_excess = (high_cost['total_cost_bps'] - high_cost['max_acceptable_fee_bps']).mean()
+                exceptions.append({
+                    'type': 'Excessive Costs',
+                    'count': len(high_cost),
+                    'severity': 'Medium',
+                    'details': f"{len(high_cost)} transactions exceeded fee limits by avg {avg_excess:.1f} BPS",
+                    'sample_ids': high_cost['transfer_id'].head(5).tolist() if 'transfer_id' in high_cost.columns else []
+                })
+        
+        # Slow transactions (significantly above average)
+        if 'settlement_time_sec' in df.columns:
+            avg_time = df['settlement_time_sec'].mean()
+            std_time = df['settlement_time_sec'].std()
+            slow_txns = df[df['settlement_time_sec'] > (avg_time + 2 * std_time)]
+            if len(slow_txns) > 0:
+                exceptions.append({
+                    'type': 'Slow Settlements',
+                    'count': len(slow_txns),
+                    'severity': 'Medium',
+                    'details': f"{len(slow_txns)} transactions took >2σ longer than average",
+                    'avg_time': slow_txns['settlement_time_sec'].mean() / 60,
+                    'sample_ids': slow_txns['transfer_id'].head(5).tolist() if 'transfer_id' in slow_txns.columns else []
+                })
+        
+        # Pending transactions (stuck)
+        if 'settlement_status' in df.columns and 'timestamp' in df.columns:
+            pending = df[df['settlement_status'] == 'pending']
+            if len(pending) > 0:
+                # Check if any are old (>1 hour)
+                now = df['timestamp'].max()
+                old_pending = pending[pending['timestamp'] < (now - timedelta(hours=1))]
+                if len(old_pending) > 0:
+                    exceptions.append({
+                        'type': 'Stuck Pending Transactions',
+                        'count': len(old_pending),
+                        'severity': 'High',
+                        'details': f"{len(old_pending)} transactions pending for >1 hour",
+                        'sample_ids': old_pending['transfer_id'].head(5).tolist() if 'transfer_id' in old_pending.columns else []
+                    })
+        
+        return exceptions
+
+    def identify_cost_anomalies(df, threshold_percentile=95):
+        """
+        Identify transactions with anomalously high costs
+        
+        Args:
+            df: Transaction dataframe
+            threshold_percentile: Percentile threshold for anomaly detection
+            
+        Returns:
+            List of anomalous transaction dictionaries
+        """
+        if 'total_cost_bps' not in df.columns:
+            return []
+        
+        threshold = df['total_cost_bps'].quantile(threshold_percentile / 100)
+        anomalies = df[df['total_cost_bps'] > threshold]
+        
+        anomaly_list = []
+        for _, row in anomalies.head(20).iterrows():  # Limit to 20
+            anomaly = {
+                'transfer_id': row.get('transfer_id', 'N/A'),
+                'cost_bps': row.get('total_cost_bps', 0),
+                'amount': row.get('amount_source', 0),
+                'business_type': row.get('business_type', 'N/A'),
+                'route': f"{row.get('source_chain', 'N/A')} → {row.get('dest_chain', 'N/A')}",
+                'routing_hops': row.get('routing_hops', 0),
+                'gas_cost': row.get('gas_cost_usd', 0),
+                'slippage': row.get('slippage_cost_usd', 0)
+            }
+            anomaly_list.append(anomaly)
+        
+        return anomaly_list
+
+    def prepare_route_optimization_data(df):
+        """
+        Prepare route performance data for optimization recommendations
+        
+        Args:
+            df: Transaction dataframe
+            
+        Returns:
+            Dictionary with route performance metrics
+        """
+        if not all(col in df.columns for col in ['source_chain', 'dest_chain']):
+            return {}
+        
+        route_data = df.groupby(['source_chain', 'dest_chain']).agg({
+            'transfer_id': 'count',
+            'total_cost_bps': 'mean' if 'total_cost_bps' in df.columns else 'count',
+            'settlement_time_sec': 'mean' if 'settlement_time_sec' in df.columns else 'count',
+            'settlement_status': lambda x: (x == 'completed').sum() / len(x) * 100 if 'settlement_status' in df.columns else 100,
+            'routing_hops': 'mean' if 'routing_hops' in df.columns else 'count'
+        }).reset_index()
+        
+        route_data.columns = ['source', 'dest', 'volume', 'avg_cost_bps', 'avg_time_sec', 'success_rate', 'avg_hops']
+        
+        # Convert to dict format
+        routes = []
+        for _, row in route_data.head(10).iterrows():
+            routes.append({
+                'route': f"{row['source']} → {row['dest']}",
+                'volume': int(row['volume']),
+                'avg_cost_bps': float(row['avg_cost_bps']),
+                'avg_time_min': float(row['avg_time_sec']) / 60,
+                'success_rate': float(row['success_rate']),
+                'avg_hops': float(row['avg_hops'])
+            })
+        
+        return {
+            'top_routes': routes,
+            'total_routes': len(route_data),
+            'avg_cost_all': float(df['total_cost_bps'].mean()) if 'total_cost_bps' in df.columns else 0,
+            'avg_time_all': float(df['settlement_time_sec'].mean() / 60) if 'settlement_time_sec' in df.columns else 0
         }
-        anomaly_list.append(anomaly)
-    
-    return anomaly_list
 
-def prepare_route_optimization_data(df):
+def generate_insights(input_obj: dict, model="gpt-4o-mini"):
+    PROMPT_SUMMARY = """
+    You are an AI assistant for a payments treasury system.
+    Input: a JSON object with KPI timeseries and recent abnormal transfers.
+    Task: Produce:
+    1) A concise summary paragraph (2-3 sentences).
+    2) List of anomalies with severity (LOW/MEDIUM/HIGH).
+    3) Suggested rebalancing moves (structured: asset_from, asset_to, amount, rationale).
+    Output must be JSON with keys: summary, anomalies, recommendations.
+    Here is the input:
+    {input_json}
     """
-    Prepare route performance data for optimization recommendations
-    
-    Args:
-        df: Transaction dataframe
-        
-    Returns:
-        Dictionary with route performance metrics
-    """
-    if not all(col in df.columns for col in ['source_chain', 'dest_chain']):
-        return {}
-    
-    route_data = df.groupby(['source_chain', 'dest_chain']).agg({
-        'transfer_id': 'count',
-        'total_cost_bps': 'mean' if 'total_cost_bps' in df.columns else 'count',
-        'settlement_time_sec': 'mean' if 'settlement_time_sec' in df.columns else 'count',
-        'settlement_status': lambda x: (x == 'completed').sum() / len(x) * 100 if 'settlement_status' in df.columns else 100,
-        'routing_hops': 'mean' if 'routing_hops' in df.columns else 'count'
-    }).reset_index()
-    
-    route_data.columns = ['source', 'dest', 'volume', 'avg_cost_bps', 'avg_time_sec', 'success_rate', 'avg_hops']
-    
-    # Convert to dict format
-    routes = []
-    for _, row in route_data.head(10).iterrows():
-        routes.append({
-            'route': f"{row['source']} → {row['dest']}",
-            'volume': int(row['volume']),
-            'avg_cost_bps': float(row['avg_cost_bps']),
-            'avg_time_min': float(row['avg_time_sec']) / 60,
-            'success_rate': float(row['success_rate']),
-            'avg_hops': float(row['avg_hops'])
-        })
-    
-    return {
-        'top_routes': routes,
-        'total_routes': len(route_data),
-        'avg_cost_all': float(df['total_cost_bps'].mean()) if 'total_cost_bps' in df.columns else 0,
-        'avg_time_all': float(df['settlement_time_sec'].mean() / 60) if 'settlement_time_sec' in df.columns else 0
-    }
+    prompt = PROMPT_SUMMARY.format(input_json=json.dumps(input_obj))
+    resp = openai.ChatCompletion.create(
+        model=model,
+        messages=[{"role":"user", "content": prompt}],
+        temperature=0.0,
+        max_tokens=600
+    )
+    text = resp['choices'][0]['message']['content'].strip()
+    # parse JSON safely
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        # fallback: return raw text wrapped
+        parsed = {"summary": text, "anomalies": [], "recommendations": []}
+    return parsed
