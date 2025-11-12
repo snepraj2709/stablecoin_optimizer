@@ -19,19 +19,6 @@ This guide will walk you through setting up the Stablecoin Routing Optimization 
 # Create project directory
 mkdir stablecoin-optimizer
 cd stablecoin-optimizer
-```
-
-### 2. Create Project Structure
-
-Create the following directory structure:
-
-```bash
-mkdir -p agents data config api tests
-touch optimizer.py
-touch requirements.txt
-touch .env.template
-touch README.md
-```
 
 ### 3. Install Python Dependencies
 
@@ -85,45 +72,17 @@ CACHE_TTL_SECONDS=30
 - **Google**: https://makersuite.google.com/app/apikey
 - **Anthropic**: https://console.anthropic.com/
 
-### 5. Copy Source Files
-
-Copy all the provided source files into their respective directories:
-
-**Core Files:**
-- `optimizer.py` → Root directory
-- `data/generate_data.py` → data/ directory
-
-**Agent Files:**
-- `agents/market_data_agent.py`
-- `agents/routing_agent.py`
-- `agents/compliance_agent.py`
-
-**API Files:**
-- `api/main.py`
-
-**Demo Files:**
-- `run_demo.py` → Root directory
-
-### 6. Create Empty __init__.py Files
-
-```bash
-# Make packages importable
-touch agents/__init__.py
-touch config/__init__.py
-touch api/__init__.py
-touch tests/__init__.py
-```
-
 ### 7. Generate Dummy Data
 
 ```bash
 # Generate 100 sample transfers
-python data/generate_data.py
+python main.py
 ```
 
 This creates:
-- `data/stablecoin_transfers.csv` (100 transfers)
-- `data/sample_transfers.json` (10 sample transfers)
+- `config/generated_transfers.csv` (100 dummy transfers)
+- `config/normalized_transactions.csv` (100 normalized transfers)
+- `config/optimization_results.json` (100 optimized transfers)
 
 Expected output:
 ```
@@ -141,15 +100,8 @@ Settlement success rate: 92.0%
 #### Option A: Run Demo Script
 
 ```bash
-python run_demo.py
-```
-
-This runs 5 comprehensive demos showcasing all features.
-
-#### Option B: Run Main Optimizer
-
-```bash
-python optimizer.py
+python main.py
+streamlit run dashboard/dashboard.py
 ```
 
 Expected output:
@@ -189,50 +141,6 @@ Access the API documentation:
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 
-### 10. Test API Endpoints
-
-#### Using curl:
-
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# Optimize transfer
-curl -X POST http://localhost:8000/api/v1/optimize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source_currency": "USD",
-    "dest_currency": "USDC",
-    "amount": 100000,
-    "dest_chain": "Ethereum",
-    "max_cost_bps": 50,
-    "max_settlement_time_sec": 300,
-    "region": "US",
-    "kyc_verified": true
-  }'
-```
-
-#### Using Python:
-
-```python
-import requests
-
-response = requests.post(
-    'http://localhost:8000/api/v1/optimize',
-    json={
-        'source_currency': 'USD',
-        'dest_currency': 'USDC',
-        'amount': 100000,
-        'dest_chain': 'Ethereum',
-        'max_cost_bps': 50,
-        'max_settlement_time_sec': 300,
-        'region': 'US',
-        'kyc_verified': True
-    }
-)
-
-print(response.json())
-```
 
 ## Verification Checklist
 
@@ -244,71 +152,6 @@ print(response.json())
 - [ ] API server starts successfully
 - [ ] API endpoints respond correctly
 - [ ] Swagger docs accessible
-
-## Troubleshooting
-
-### Issue: Import Errors
-
-```bash
-# Make sure you're in the project root
-pwd
-
-# Verify Python path
-python -c "import sys; print(sys.path)"
-
-# Reinstall dependencies
-pip install -r requirements.txt --force-reinstall
-```
-
-### Issue: OpenAI API Errors
-
-```python
-# Test API key
-python -c "import openai; print('API key valid')"
-
-# Check environment variable
-python -c "import os; print(os.getenv('OPENAI_API_KEY'))"
-```
-
-### Issue: Port Already in Use
-
-```bash
-# Kill process on port 8000
-# macOS/Linux:
-lsof -ti:8000 | xargs kill -9
-
-# Windows:
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
-```
-
-### Issue: Module Not Found
-
-```bash
-# Ensure all __init__.py files exist
-touch agents/__init__.py
-touch config/__init__.py
-touch api/__init__.py
-
-# Add project to PYTHONPATH
-export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-```
-
-## Running Tests
-
-```bash
-# Install test dependencies
-pip install pytest pytest-asyncio pytest-cov
-
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=agents --cov=optimizer --cov-report=html
-
-# Run specific test file
-pytest tests/test_optimizer.py -v
-```
 
 ## Development Workflow
 
@@ -326,7 +169,7 @@ pytest tests/test_optimizer.py -v
 3. **Test changes**
    ```bash
    pytest
-   python run_demo.py
+   python main.py
    ```
 
 4. **Commit**
@@ -334,86 +177,6 @@ pytest tests/test_optimizer.py -v
    git add .
    git commit -m "Add new feature"
    ```
-
-### Adding New Agents
-
-1. Create new file: `agents/new_agent.py`
-2. Implement agent class with async methods
-3. Import in `optimizer.py`
-4. Add to orchestration workflow
-5. Add tests in `tests/test_agents/`
-
-### Code Style
-
-```bash
-# Format code
-black optimizer.py agents/*.py
-
-# Check style
-flake8 optimizer.py agents/*.py
-
-# Type checking
-mypy optimizer.py
-```
-
-## Production Deployment
-
-### Using Docker
-
-```dockerfile
-# Dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-```bash
-# Build image
-docker build -t stablecoin-optimizer .
-
-# Run container
-docker run -p 8000:8000 --env-file .env stablecoin-optimizer
-```
-
-### Using Docker Compose
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  api:
-    build: .
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    volumes:
-      - ./data:/app/data
-    
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
-```
-
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
 
 ## Performance Optimization
 
@@ -479,32 +242,3 @@ optimization_duration = Histogram(
     'Optimization duration'
 )
 ```
-
-## Next Steps
-
-1. ✅ **Setup Complete** - System is operational
-2. 📊 **Explore Data** - Analyze generated transfers
-3. 🧪 **Run Demos** - Test all features
-4. 🔧 **Customize** - Modify for your use case
-5. 📈 **Monitor** - Set up dashboards
-6. 🚀 **Deploy** - Move to production
-
-## Support
-
-- **Documentation**: See `docs/` directory
-- **Issues**: Create GitHub issue
-- **Questions**: Check FAQ in README.md
-- **Updates**: `git pull origin main`
-
-## Additional Resources
-
-- [OpenAI API Docs](https://platform.openai.com/docs)
-- [FastAPI Docs](https://fastapi.tiangolo.com)
-- [Pandas Docs](https://pandas.pydata.org/docs)
-- [AsyncIO Docs](https://docs.python.org/3/library/asyncio.html)
-
----
-
-**Setup Complete! 🎉**
-
-Your stablecoin optimizer is ready to use. Start with `python run_demo.py` to see it in action!
