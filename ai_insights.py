@@ -27,45 +27,36 @@ class AIInsightsEngine:
         self.model = model
     
     def generate_daily_summary(self, data_dict: Dict) -> str:
-        """
-        Generate daily treasury summary based on transaction data
-        
-        Args:
-            data_dict: Dictionary containing daily metrics
-            
-        Returns:
-            AI-generated summary text
-        """
         prompt = f"""You are a treasury operations analyst. Generate a concise daily summary report based on the following transaction data.
 
-Data Summary:
-- Total Transactions: {data_dict.get('total_transactions', 0):,}
-- Total Volume: ${data_dict.get('total_volume', 0):,.2f}
-- Average Cost (BPS): {data_dict.get('avg_cost_bps', 0):.2f}
-- Success Rate: {data_dict.get('success_rate', 0):.1f}%
-- Failed Transactions: {data_dict.get('failed_count', 0)}
-- Average Settlement Time: {data_dict.get('avg_settlement_time', 0):.1f} minutes
-- Total Fees: ${data_dict.get('total_fees', 0):,.2f}
-- Compliance Rate: {data_dict.get('compliance_rate', 0):.1f}%
+        Data Summary:
+        - Total Transactions: {data_dict.get('total_transactions', 0):,}
+        - Total Volume: ${data_dict.get('total_volume', 0):,.2f}
+        - Average Cost (BPS): {data_dict.get('avg_cost_bps', 0):.2f}
+        - Success Rate: {data_dict.get('success_rate', 0):.1f}%
+        - Failed Transactions: {data_dict.get('failed_count', 0)}
+        - Average Settlement Time: {data_dict.get('avg_settlement_time', 0):.1f} minutes
+        - Total Fees: ${data_dict.get('total_fees', 0):,.2f}
+        - Compliance Rate: {data_dict.get('compliance_rate', 0):.1f}%
 
-Comparison to Previous Period:
-- Volume Change: {data_dict.get('volume_change', 0):+.1f}%
-- Cost Change: {data_dict.get('cost_change', 0):+.1f}%
-- Success Rate Change: {data_dict.get('success_change', 0):+.1f}pp
+        Comparison to Previous Period:
+        - Volume Change: {data_dict.get('volume_change', 0):+.1f}%
+        - Cost Change: {data_dict.get('cost_change', 0):+.1f}%
+        - Success Rate Change: {data_dict.get('success_change', 0):+.1f}pp
 
-Top Business Types:
-{data_dict.get('top_business_types', 'N/A')}
+        Top Business Types:
+        {data_dict.get('top_business_types', 'N/A')}
 
-Top Routes:
-{data_dict.get('top_routes', 'N/A')}
+        Top Routes:
+        {data_dict.get('top_routes', 'N/A')}
 
-Generate a professional daily summary that:
-1. Highlights key performance metrics
-2. Identifies notable trends or changes
-3. Flags any concerns
-4. Provides a brief outlook
+        Generate a professional daily summary that:
+        1. Highlights key performance metrics
+        2. Identifies notable trends or changes
+        3. Flags any concerns
+        4. Provides a brief outlook
 
-Keep it concise (200-300 words) and actionable."""
+        Keep it concise (200-300 words) and actionable."""
 
         try:
             response = openai.ChatCompletion.create(

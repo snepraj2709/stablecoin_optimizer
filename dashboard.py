@@ -9,6 +9,67 @@ import os
 from pathlib import Path
 import sys
 
+# ---------- Defensive helpers (paste near imports) ----------
+def safe_mean(series):
+    """Return numeric mean or 0.0 if series empty/NaN/uncoercible."""
+    try:
+        if series is None or len(series) == 0:
+            return 0.0
+        # coerce to numeric to protect against strings
+        s = pd.to_numeric(series, errors='coerce')
+        m = s.mean()
+        return float(m) if pd.notna(m) else 0.0
+    except Exception:
+        return 0.0
+
+def safe_sum(series):
+    try:
+        if series is None or len(series) == 0:
+            return 0.0
+        s = pd.to_numeric(series, errors='coerce').sum()
+        return float(s) if pd.notna(s) else 0.0
+    except Exception:
+        return 0.0
+
+def safe_count(df, col=None):
+    if df is None:
+        return 0
+    if col is None:
+        return len(df)
+    return int(df[col].count())
+
+def format_val_or_na(val, fmt="{:.2f}"):
+    """Format numeric value or return 'N/A' for NaN/None types."""
+    try:
+        if val is None:
+            return "N/A"
+        if isinstance(val, float) and np.isnan(val):
+            return "N/A"
+        # for ints etc.
+        return fmt.format(val)
+    except Exception:
+        try:
+            return fmt.format(float(val))
+        except Exception:
+            return "N/A"
+
+def calculate_improvement(before_val, after_val, inverse=False):
+    """Calculate percentage improvement (safe). Returns float."""
+    try:
+        b = float(before_val) if pd.notna(before_val) else 0.0
+    except Exception:
+        b = 0.0
+    try:
+        a = float(after_val) if pd.notna(after_val) else 0.0
+    except Exception:
+        a = 0.0
+
+    if b == 0:
+        return 0.0
+    improvement = ((b - a) / b) * 100
+    return -improvement if inverse else improvement
+# -----------------------------------------------------------
+
 # Try to import AI insights module
 try:
     from ai_insights import (
@@ -98,7 +159,7 @@ def load_data(file_path):
         if os.path.exists(file_path):
             df = pd.read_csv(file_path)
             if 'timestamp' in df.columns:
-                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
             return df
         else:
             return None
@@ -134,6 +195,11 @@ analysis_mode = st.sidebar.radio(
 )
 
 # Load appropriate data based on mode
+df = None
+df_before = None
+df_after = None
+data_source = "N/A"
+
 if analysis_mode == "Current State":
     # Use normalized data as primary source, fall back to optimized if available
     if files_status['Normalized Data']:
@@ -155,7 +221,8 @@ else:  # Optimization Comparison
     if files_status['Original Transfers'] and files_status['Optimized Results']:
         df_before = load_data(ALL_TRANSFER_CSV)
         df_after = load_data(OPTIMISED_TRANSFER_CSV)
-        df = df_after  # Use optimized as primary for filtering
+        # Use optimized as primary for filtering
+        df = df_after if df_after is not None else df_before
         data_source = "Comparison Mode"
         st.sidebar.success("✅ Comparison mode enabled")
     else:
@@ -167,21 +234,26 @@ st.sidebar.markdown("---")
 st.sidebar.title("🎛️ Filters")
 
 # Date range filter
-if df is not None and 'timestamp' in df.columns:
-    min_date = df['timestamp'].min().date()
-    max_date = df['timestamp'].max().date()
-    date_range = st.sidebar.date_input(
-        "Date Range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date
-    )
+if df is not None and 'timestamp' in df.columns and df['timestamp'].notna().any():
+    # Ensure we have at least one non-NaT timestamp
+    min_date = df['timestamp'].dropna().min().date()
+    max_date = df['timestamp'].dropna().max().date()
+    try:
+        date_range = st.sidebar.date_input(
+            "Date Range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date
+        )
+    except Exception:
+        # Fallback if Streamlit complains about values
+        date_range = (min_date, max_date)
 else:
     date_range = None
 
 # Business type filter
 if df is not None and 'business_type' in df.columns:
-    business_types = ['All'] + sorted(df['business_type'].unique().tolist())
+    business_types = ['All'] + sorted(df['business_type'].dropna().unique().tolist())
     selected_business_type = st.sidebar.multiselect(
         "Business Type",
         business_types,
@@ -192,7 +264,7 @@ else:
 
 # Region filter
 if df is not None and 'region' in df.columns:
-    regions = ['All'] + sorted(df['region'].unique().tolist())
+    regions = ['All'] + sorted(df['region'].dropna().unique().tolist())
     selected_region = st.sidebar.multiselect(
         "Region",
         regions,
@@ -203,7 +275,7 @@ else:
 
 # Urgency level filter
 if df is not None and 'urgency_level' in df.columns:
-    urgency_levels = ['All'] + sorted(df['urgency_level'].unique().tolist())
+    urgency_levels = ['All'] + sorted(df['urgency_level'].dropna().unique().tolist())
     selected_urgency = st.sidebar.multiselect(
         "Urgency Level",
         urgency_levels,
@@ -214,7 +286,7 @@ else:
 
 # User tier filter
 if df is not None and 'user_tier' in df.columns:
-    user_tiers = ['All'] + sorted(df['user_tier'].unique().tolist())
+    user_tiers = ['All'] + sorted(df['user_tier'].dropna().unique().tolist())
     selected_tier = st.sidebar.multiselect(
         "User Tier",
         user_tiers,
@@ -263,9 +335,13 @@ def apply_filters(dataframe):
     filtered = dataframe.copy()
     
     # Date filter
-    if date_range is not None and len(date_range) == 2 and 'timestamp' in filtered.columns:
-        mask = (filtered['timestamp'].dt.date >= date_range[0]) & (filtered['timestamp'].dt.date <= date_range[1])
-        filtered = filtered[mask]
+    if date_range is not None and isinstance(date_range, (list, tuple)) and len(date_range) == 2 and 'timestamp' in filtered.columns:
+        try:
+            start_date, end_date = date_range
+            mask = (filtered['timestamp'].dt.date >= start_date) & (filtered['timestamp'].dt.date <= end_date)
+            filtered = filtered[mask]
+        except Exception:
+            pass
     
     # Business type filter
     if 'All' not in selected_business_type and 'business_type' in filtered.columns:
@@ -289,7 +365,7 @@ def apply_filters(dataframe):
 if analysis_mode == "Optimization Comparison":
     filtered_df_before = apply_filters(df_before)
     filtered_df_after = apply_filters(df_after)
-    filtered_df = filtered_df_after
+    filtered_df = filtered_df_after if filtered_df_after is not None else filtered_df_before
 else:
     filtered_df = apply_filters(df)
 
@@ -297,6 +373,26 @@ else:
 if filtered_df is None or len(filtered_df) == 0:
     st.warning("⚠️ No data available with current filters. Please adjust your filters.")
     st.stop()
+
+# Ensure some numeric columns are coerced to numeric to avoid surprises downstream
+numeric_cols = [
+    'total_cost_bps', 'settlement_time_sec', 'total_fees_usd', 'gas_cost_usd',
+    'lp_fee_usd', 'bridge_cost_usd', 'slippage_cost_usd', 'amount_source',
+    'routing_hops'
+]
+for col in numeric_cols:
+    if col in filtered_df.columns:
+        filtered_df[col] = pd.to_numeric(filtered_df[col], errors='coerce')
+
+if analysis_mode == "Optimization Comparison":
+    if filtered_df_before is not None:
+        for col in numeric_cols:
+            if col in filtered_df_before.columns:
+                filtered_df_before[col] = pd.to_numeric(filtered_df_before[col], errors='coerce')
+    if filtered_df_after is not None:
+        for col in numeric_cols:
+            if col in filtered_df_after.columns:
+                filtered_df_after[col] = pd.to_numeric(filtered_df_after[col], errors='coerce')
 
 # Main content
 st.title("💱 Stablecoin Route Optimization Dashboard")
@@ -343,16 +439,6 @@ else:
             "🌍 Regional & Compliance"
         ])
 
-# Helper function to calculate improvement
-def calculate_improvement(before_val, after_val, inverse=False):
-    """Calculate percentage improvement"""
-    if before_val == 0:
-        return 0
-    improvement = ((before_val - after_val) / before_val) * 100
-    if inverse:
-        improvement = -improvement
-    return improvement
-
 # TAB: Optimization Impact (only in comparison mode)
 if analysis_mode == "Optimization Comparison":
     with tab1:
@@ -361,25 +447,33 @@ if analysis_mode == "Optimization Comparison":
         
         # Calculate key metrics for both datasets
         metrics_comparison = {}
+        cost_improvement = 0.0
+        time_improvement = 0.0
+        success_improvement = 0.0
         
         # Cost metrics
-        if 'total_cost_bps' in filtered_df_before.columns and 'total_cost_bps' in filtered_df_after.columns:
-            before_cost = filtered_df_before['total_cost_bps'].mean()
-            after_cost = filtered_df_after['total_cost_bps'].mean()
+        if filtered_df_before is not None and filtered_df_after is not None and \
+           'total_cost_bps' in filtered_df_before.columns and 'total_cost_bps' in filtered_df_after.columns:
+            before_cost = safe_mean(filtered_df_before['total_cost_bps'])
+            after_cost = safe_mean(filtered_df_after['total_cost_bps'])
             cost_improvement = calculate_improvement(before_cost, after_cost)
             metrics_comparison['cost'] = (before_cost, after_cost, cost_improvement)
         
         # Time metrics
-        if 'settlement_time_sec' in filtered_df_before.columns and 'settlement_time_sec' in filtered_df_after.columns:
-            before_time = filtered_df_before['settlement_time_sec'].mean()
-            after_time = filtered_df_after['settlement_time_sec'].mean()
+        if filtered_df_before is not None and filtered_df_after is not None and \
+           'settlement_time_sec' in filtered_df_before.columns and 'settlement_time_sec' in filtered_df_after.columns:
+            before_time = safe_mean(filtered_df_before['settlement_time_sec'])
+            after_time = safe_mean(filtered_df_after['settlement_time_sec'])
             time_improvement = calculate_improvement(before_time, after_time)
             metrics_comparison['time'] = (before_time, after_time, time_improvement)
+        else:
+            time_improvement = 0.0
         
         # Success rate
-        if 'settlement_status' in filtered_df_before.columns and 'settlement_status' in filtered_df_after.columns:
-            before_success = (filtered_df_before['settlement_status'] == 'completed').sum() / len(filtered_df_before) * 100
-            after_success = (filtered_df_after['settlement_status'] == 'completed').sum() / len(filtered_df_after) * 100
+        if filtered_df_before is not None and filtered_df_after is not None and \
+           'settlement_status' in filtered_df_before.columns and 'settlement_status' in filtered_df_after.columns:
+            before_success = ((filtered_df_before['settlement_status'] == 'completed').sum() / len(filtered_df_before) * 100) if len(filtered_df_before) > 0 else 0.0
+            after_success = ((filtered_df_after['settlement_status'] == 'completed').sum() / len(filtered_df_after) * 100) if len(filtered_df_after) > 0 else 0.0
             success_improvement = after_success - before_success
             metrics_comparison['success'] = (before_success, after_success, success_improvement)
         
@@ -391,44 +485,53 @@ if analysis_mode == "Optimization Comparison":
                 before, after, improvement = metrics_comparison['cost']
                 st.metric(
                     "Avg Cost (BPS)",
-                    f"{after:.2f}",
+                    format_val_or_na(after, "{:.2f}"),
                     f"{improvement:.1f}%",
                     delta_color="inverse"
                 )
-                st.caption(f"Before: {before:.2f} BPS")
+                st.caption(f"Before: {format_val_or_na(before, '{:.2f}')} BPS")
+            else:
+                st.metric("Avg Cost (BPS)", "N/A")
         
         with col2:
             if 'time' in metrics_comparison:
                 before, after, improvement = metrics_comparison['time']
                 st.metric(
                     "Avg Settlement Time",
-                    f"{after/60:.1f} min",
+                    format_val_or_na(after/60 if after is not None else None, "{:.1f}") + " min" if after not in (None, 0, np.nan) else "N/A",
                     f"{improvement:.1f}%",
                     delta_color="inverse"
                 )
-                st.caption(f"Before: {before/60:.1f} min")
+                st.caption(f"Before: {format_val_or_na(before/60 if before is not None else None, '{:.1f}')} min")
+            else:
+                st.metric("Avg Settlement Time", "N/A")
         
         with col3:
             if 'success' in metrics_comparison:
                 before, after, improvement = metrics_comparison['success']
                 st.metric(
                     "Success Rate",
-                    f"{after:.1f}%",
+                    format_val_or_na(after, "{:.1f}") + "%" if after not in (None, np.nan) else "N/A",
                     f"+{improvement:.1f}%",
                     delta_color="normal"
                 )
-                st.caption(f"Before: {before:.1f}%")
+                st.caption(f"Before: {format_val_or_na(before, '{:.1f}')}%")
+            else:
+                st.metric("Success Rate", "N/A")
         
         with col4:
             # Calculate cost savings
-            if 'total_fees_usd' in filtered_df_before.columns and 'total_fees_usd' in filtered_df_after.columns:
-                total_savings = filtered_df_before['total_fees_usd'].sum() - filtered_df_after['total_fees_usd'].sum()
+            if filtered_df_before is not None and filtered_df_after is not None and \
+               'total_fees_usd' in filtered_df_before.columns and 'total_fees_usd' in filtered_df_after.columns:
+                total_savings = safe_sum(filtered_df_before['total_fees_usd']) - safe_sum(filtered_df_after['total_fees_usd'])
                 st.metric(
                     "Total Cost Savings",
                     f"${total_savings:,.2f}",
-                    f"Saved",
+                    "Saved",
                     delta_color="normal"
                 )
+            else:
+                st.metric("Total Cost Savings", "N/A")
         
         st.markdown("---")
         
@@ -438,14 +541,20 @@ if analysis_mode == "Optimization Comparison":
         col1, col2 = st.columns(2)
         
         with col1:
-            if 'total_fees_usd' in filtered_df_before.columns and 'total_fees_usd' in filtered_df_after.columns:
-                total_before = filtered_df_before['total_fees_usd'].sum()
-                total_after = filtered_df_after['total_fees_usd'].sum()
+            if filtered_df_before is not None and filtered_df_after is not None and \
+               'total_fees_usd' in filtered_df_before.columns and 'total_fees_usd' in filtered_df_after.columns:
+                total_before = safe_sum(filtered_df_before['total_fees_usd'])
+                total_after = safe_sum(filtered_df_after['total_fees_usd'])
                 total_savings = total_before - total_after
                 
                 # Calculate annualized savings (assuming data represents a period)
-                if 'timestamp' in filtered_df_after.columns:
-                    days_in_data = (filtered_df_after['timestamp'].max() - filtered_df_after['timestamp'].min()).days
+                if 'timestamp' in filtered_df_after.columns and filtered_df_after['timestamp'].notna().any():
+                    min_ts = filtered_df_after['timestamp'].dropna().min()
+                    max_ts = filtered_df_after['timestamp'].dropna().max()
+                    if pd.notna(min_ts) and pd.notna(max_ts):
+                        days_in_data = (max_ts - min_ts).days
+                    else:
+                        days_in_data = 0
                     if days_in_data > 0:
                         annualized_savings = (total_savings / days_in_data) * 365
                     else:
@@ -453,31 +562,38 @@ if analysis_mode == "Optimization Comparison":
                 else:
                     annualized_savings = total_savings
                 
+                savings_rate = (total_savings / total_before * 100) if total_before > 0 else 0.0
+                
                 st.markdown(f"""
                 <div class="alert-green">
                     <h4>💵 Cost Reduction Impact</h4>
                     <p><strong>Total Fees Before Optimization:</strong> ${total_before:,.2f}</p>
                     <p><strong>Total Fees After Optimization:</strong> ${total_after:,.2f}</p>
                     <p><strong>Total Savings:</strong> ${total_savings:,.2f}</p>
-                    <p><strong>Savings Rate:</strong> {(total_savings/total_before*100):.1f}%</p>
+                    <p><strong>Savings Rate:</strong> {savings_rate:.1f}%</p>
                     <p><strong>Projected Annual Savings:</strong> ${annualized_savings:,.2f}</p>
                 </div>
                 """, unsafe_allow_html=True)
+            else:
+                st.info("Cost data not sufficient for ROI calculation")
         
         with col2:
             # Transaction efficiency improvement
-            txn_count_before = len(filtered_df_before)
-            txn_count_after = len(filtered_df_after)
-            
-            st.markdown(f"""
-            <div class="alert-blue">
-                <h4>📊 Transaction Efficiency</h4>
-                <p><strong>Transactions Analyzed:</strong> {txn_count_after:,}</p>
-                <p><strong>Avg Cost Reduction:</strong> {cost_improvement:.1f}%</p>
-                <p><strong>Avg Time Reduction:</strong> {time_improvement:.1f}%</p>
-                <p><strong>Success Rate Improvement:</strong> +{success_improvement:.1f}pp</p>
-            </div>
-            """, unsafe_allow_html=True)
+            if filtered_df_before is not None and filtered_df_after is not None:
+                txn_count_before = len(filtered_df_before)
+                txn_count_after = len(filtered_df_after)
+                
+                st.markdown(f"""
+                <div class="alert-blue">
+                    <h4>📊 Transaction Efficiency</h4>
+                    <p><strong>Transactions Analyzed:</strong> {txn_count_after:,}</p>
+                    <p><strong>Avg Cost Reduction:</strong> {format_val_or_na(cost_improvement, '{:.1f}')}%</p>
+                    <p><strong>Avg Time Reduction:</strong> {format_val_or_na(time_improvement, '{:.1f}')}%</p>
+                    <p><strong>Success Rate Improvement:</strong> +{format_val_or_na(success_improvement, '{:.1f}')}pp</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("Transaction data not sufficient for efficiency metrics")
         
         st.markdown("---")
         
@@ -488,43 +604,48 @@ if analysis_mode == "Optimization Comparison":
         
         with col1:
             # Cost distribution comparison
-            if 'total_cost_bps' in filtered_df_before.columns and 'total_cost_bps' in filtered_df_after.columns:
+            if filtered_df_before is not None and filtered_df_after is not None and \
+               'total_cost_bps' in filtered_df_before.columns and 'total_cost_bps' in filtered_df_after.columns:
                 fig = go.Figure()
-                fig.add_trace(go.Box(y=filtered_df_before['total_cost_bps'], name='Before', 
-                                    marker_color='#ff7f0e'))
-                fig.add_trace(go.Box(y=filtered_df_after['total_cost_bps'], name='After', 
-                                    marker_color='#2ca02c'))
+                fig.add_trace(go.Box(y=filtered_df_before['total_cost_bps'].dropna(), name='Before'))
+                fig.add_trace(go.Box(y=filtered_df_after['total_cost_bps'].dropna(), name='After'))
                 fig.update_layout(title='Cost Distribution Comparison (BPS)', 
                                  yaxis_title='Total Cost (BPS)', height=400)
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Cost distribution data not available for comparison")
         
         with col2:
             # Settlement time comparison
-            if 'settlement_time_sec' in filtered_df_before.columns and 'settlement_time_sec' in filtered_df_after.columns:
+            if filtered_df_before is not None and filtered_df_after is not None and \
+               'settlement_time_sec' in filtered_df_before.columns and 'settlement_time_sec' in filtered_df_after.columns:
                 fig = go.Figure()
-                fig.add_trace(go.Box(y=filtered_df_before['settlement_time_sec']/60, name='Before', 
-                                    marker_color='#ff7f0e'))
-                fig.add_trace(go.Box(y=filtered_df_after['settlement_time_sec']/60, name='After', 
-                                    marker_color='#2ca02c'))
+                fig.add_trace(go.Box(y=(filtered_df_before['settlement_time_sec'].dropna()/60), name='Before'))
+                fig.add_trace(go.Box(y=(filtered_df_after['settlement_time_sec'].dropna()/60), name='After'))
                 fig.update_layout(title='Settlement Time Comparison (minutes)', 
                                  yaxis_title='Settlement Time (min)', height=400)
                 st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Settlement time data not available for comparison")
         
         # Cost component breakdown comparison
         st.markdown("### 💵 Cost Component Analysis")
         
+        def sum_col_or_zero(df_obj, col):
+            return safe_sum(df_obj[col]) if df_obj is not None and col in df_obj.columns else 0.0
+        
         cost_components_before = {
-            'Gas': filtered_df_before['gas_cost_usd'].sum() if 'gas_cost_usd' in filtered_df_before.columns else 0,
-            'LP Fees': filtered_df_before['lp_fee_usd'].sum() if 'lp_fee_usd' in filtered_df_before.columns else 0,
-            'Bridge': filtered_df_before['bridge_cost_usd'].sum() if 'bridge_cost_usd' in filtered_df_before.columns else 0,
-            'Slippage': filtered_df_before['slippage_cost_usd'].sum() if 'slippage_cost_usd' in filtered_df_before.columns else 0
+            'Gas': sum_col_or_zero(filtered_df_before, 'gas_cost_usd'),
+            'LP Fees': sum_col_or_zero(filtered_df_before, 'lp_fee_usd'),
+            'Bridge': sum_col_or_zero(filtered_df_before, 'bridge_cost_usd'),
+            'Slippage': sum_col_or_zero(filtered_df_before, 'slippage_cost_usd')
         }
         
         cost_components_after = {
-            'Gas': filtered_df_after['gas_cost_usd'].sum() if 'gas_cost_usd' in filtered_df_after.columns else 0,
-            'LP Fees': filtered_df_after['lp_fee_usd'].sum() if 'lp_fee_usd' in filtered_df_after.columns else 0,
-            'Bridge': filtered_df_after['bridge_cost_usd'].sum() if 'bridge_cost_usd' in filtered_df_after.columns else 0,
-            'Slippage': filtered_df_after['slippage_cost_usd'].sum() if 'slippage_cost_usd' in filtered_df_after.columns else 0
+            'Gas': sum_col_or_zero(filtered_df_after, 'gas_cost_usd'),
+            'LP Fees': sum_col_or_zero(filtered_df_after, 'lp_fee_usd'),
+            'Bridge': sum_col_or_zero(filtered_df_after, 'bridge_cost_usd'),
+            'Slippage': sum_col_or_zero(filtered_df_after, 'slippage_cost_usd')
         }
         
         col1, col2 = st.columns(2)
@@ -532,9 +653,9 @@ if analysis_mode == "Optimization Comparison":
         with col1:
             fig = go.Figure(data=[
                 go.Bar(name='Before', x=list(cost_components_before.keys()), 
-                      y=list(cost_components_before.values()), marker_color='#ff7f0e'),
+                      y=list(cost_components_before.values())),
                 go.Bar(name='After', x=list(cost_components_after.keys()), 
-                      y=list(cost_components_after.values()), marker_color='#2ca02c')
+                      y=list(cost_components_after.values()))
             ])
             fig.update_layout(title='Cost Components: Before vs After', 
                             yaxis_title='Cost ($)', barmode='group', height=400)
@@ -546,48 +667,53 @@ if analysis_mode == "Optimization Comparison":
                 'Component': list(cost_components_before.keys()),
                 'Savings ($)': [cost_components_before[k] - cost_components_after[k] 
                                for k in cost_components_before.keys()],
-                'Savings (%)': [(cost_components_before[k] - cost_components_after[k]) / cost_components_before[k] * 100 
-                               if cost_components_before[k] > 0 else 0 
-                               for k in cost_components_before.keys()]
+                'Savings (%)': [
+                    ((cost_components_before[k] - cost_components_after[k]) / cost_components_before[k] * 100) 
+                    if cost_components_before[k] > 0 else 0.0
+                    for k in cost_components_before.keys()
+                ]
             }
             savings_df = pd.DataFrame(savings_data)
             
-            fig = px.bar(savings_df, x='Component', y='Savings ($)', 
-                        title='Savings by Cost Component',
-                        text='Savings (%)', color='Savings ($)',
-                        color_continuous_scale='Greens')
-            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
+            if not savings_df.empty:
+                fig = px.bar(savings_df, x='Component', y='Savings ($)', 
+                            title='Savings by Cost Component',
+                            text='Savings (%)',
+                            color='Savings ($)',
+                            color_continuous_scale='Greens')
+                fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No savings data to display")
         
         # Routing improvement
         st.markdown("### 🗺️ Routing Optimization")
         
-        if 'routing_hops' in filtered_df_before.columns and 'routing_hops' in filtered_df_after.columns:
+        if filtered_df_before is not None and filtered_df_after is not None and \
+           'routing_hops' in filtered_df_before.columns and 'routing_hops' in filtered_df_after.columns:
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                before_hops = filtered_df_before['routing_hops'].mean()
-                after_hops = filtered_df_after['routing_hops'].mean()
+                before_hops = safe_mean(filtered_df_before['routing_hops'])
+                after_hops = safe_mean(filtered_df_after['routing_hops'])
                 hop_improvement = calculate_improvement(before_hops, after_hops)
-                st.metric("Avg Routing Hops", f"{after_hops:.2f}", f"{hop_improvement:.1f}%", 
-                         delta_color="inverse")
-                st.caption(f"Before: {before_hops:.2f}")
+                st.metric("Avg Routing Hops", format_val_or_na(after_hops, "{:.2f}"), f"{hop_improvement:.1f}%", delta_color="inverse")
+                st.caption(f"Before: {format_val_or_na(before_hops, '{:.2f}')}")
             
             with col2:
-                # Single hop percentage
-                before_single = (filtered_df_before['routing_hops'] == 1).sum() / len(filtered_df_before) * 100
-                after_single = (filtered_df_after['routing_hops'] == 1).sum() / len(filtered_df_after) * 100
-                st.metric("Single-Hop Routes", f"{after_single:.1f}%", f"+{after_single-before_single:.1f}pp")
-                st.caption(f"Before: {before_single:.1f}%")
+                before_single = (filtered_df_before['routing_hops'] == 1).sum() / len(filtered_df_before) * 100 if len(filtered_df_before) > 0 else 0.0
+                after_single = (filtered_df_after['routing_hops'] == 1).sum() / len(filtered_df_after) * 100 if len(filtered_df_after) > 0 else 0.0
+                st.metric("Single-Hop Routes", format_val_or_na(after_single, "{:.1f}") + "%", f"+{(after_single-before_single):.1f}pp")
+                st.caption(f"Before: {format_val_or_na(before_single, '{:.1f}')}%")
             
             with col3:
-                # Multi-hop (3+) percentage
-                before_multi = (filtered_df_before['routing_hops'] >= 3).sum() / len(filtered_df_before) * 100
-                after_multi = (filtered_df_after['routing_hops'] >= 3).sum() / len(filtered_df_after) * 100
-                st.metric("Multi-Hop (3+) Routes", f"{after_multi:.1f}%", f"{after_multi-before_multi:.1f}pp",
-                         delta_color="inverse")
-                st.caption(f"Before: {before_multi:.1f}%")
+                before_multi = (filtered_df_before['routing_hops'] >= 3).sum() / len(filtered_df_before) * 100 if len(filtered_df_before) > 0 else 0.0
+                after_multi = (filtered_df_after['routing_hops'] >= 3).sum() / len(filtered_df_after) * 100 if len(filtered_df_after) > 0 else 0.0
+                st.metric("Multi-Hop (3+) Routes", format_val_or_na(after_multi, "{:.1f}") + "%", f"{(after_multi-before_multi):.1f}pp", delta_color="inverse")
+                st.caption(f"Before: {format_val_or_na(before_multi, '{:.1f}')}%")
+        else:
+            st.info("Routing hops data not available for comparison")
 
 # TAB: AI Insights (when enabled)
 if ai_enabled:
@@ -637,9 +763,9 @@ if ai_enabled:
                 if st.button("🔄 Generate Summary", type="primary"):
                     with st.spinner("Generating AI summary..."):
                         # Prepare data
-                        if 'timestamp' in filtered_df.columns:
+                        if 'timestamp' in filtered_df.columns and filtered_df['timestamp'].notna().any():
                             # Get yesterday's data for comparison
-                            max_date = filtered_df['timestamp'].max()
+                            max_date = filtered_df['timestamp'].dropna().max()
                             yesterday = max_date - timedelta(days=1)
                             
                             today_df = filtered_df[filtered_df['timestamp'].dt.date == max_date.date()]
@@ -697,26 +823,27 @@ if ai_enabled:
                             st.session_state['exceptions_data'] = []
             
             with col1:
-                if 'exceptions_data' in st.session_state:
+                if st.session_state.get('exceptions_data') is not None:
                     # Show exception summary
                     st.markdown("#### Exception Summary")
                     
                     if st.session_state['exceptions_data']:
                         exception_df = pd.DataFrame(st.session_state['exceptions_data'])
                         
-                        # Display metrics
-                        cols = st.columns(len(st.session_state['exceptions_data']))
-                        for idx, exc in enumerate(st.session_state['exceptions_data']):
+                        # Display metrics (guard against many exceptions)
+                        cols = st.columns(min(len(st.session_state['exceptions_data']), 4))
+                        for idx, exc in enumerate(st.session_state['exceptions_data'][: len(cols)]):
                             with cols[idx]:
                                 severity_color = {
                                     'High': '🔴',
                                     'Medium': '🟡',
                                     'Low': '🟢'
                                 }
+                                count = exc.get('count', 0)
                                 st.metric(
-                                    f"{severity_color.get(exc['severity'], '⚪')} {exc['type']}", 
-                                    exc['count'],
-                                    delta=exc['severity']
+                                    f"{severity_color.get(exc.get('severity'), '⚪')} {exc.get('type', 'Exception')}", 
+                                    f"{count}",
+                                    delta=str(exc.get('severity', ''))
                                 )
                         
                         st.markdown("---")
@@ -793,7 +920,7 @@ if ai_enabled:
                             st.session_state['anomalies_data'] = []
             
             with col1:
-                if 'anomalies_data' in st.session_state and st.session_state['anomalies_data']:
+                if st.session_state.get('anomalies_data'):
                     # Show anomaly summary
                     st.markdown("#### High-Cost Transactions")
                     
@@ -827,15 +954,20 @@ if ai_enabled:
                 if st.button("💼 Generate Insights", type="primary"):
                     with st.spinner("Generating executive insights..."):
                         # Prepare executive summary data
+                        if 'timestamp' in filtered_df.columns and filtered_df['timestamp'].notna().any():
+                            period = f"{filtered_df['timestamp'].dropna().min().date()} to {filtered_df['timestamp'].dropna().max().date()}"
+                        else:
+                            period = "Current period"
+                        
                         exec_data = {
-                            'period': f"{filtered_df['timestamp'].min().date()} to {filtered_df['timestamp'].max().date()}" if 'timestamp' in filtered_df.columns else "Current period",
-                            'total_volume_usd': float(filtered_df['amount_source'].sum()) if 'amount_source' in filtered_df.columns else 0,
+                            'period': period,
+                            'total_volume_usd': float(safe_sum(filtered_df['amount_source'])) if 'amount_source' in filtered_df.columns else 0.0,
                             'total_transactions': len(filtered_df),
-                            'avg_cost_bps': float(filtered_df['total_cost_bps'].mean()) if 'total_cost_bps' in filtered_df.columns else 0,
-                            'success_rate': float((filtered_df['settlement_status'] == 'completed').sum() / len(filtered_df) * 100) if 'settlement_status' in filtered_df.columns else 0,
-                            'total_fees_usd': float(filtered_df['total_fees_usd'].sum()) if 'total_fees_usd' in filtered_df.columns else 0,
-                            'avg_settlement_time_min': float(filtered_df['settlement_time_sec'].mean() / 60) if 'settlement_time_sec' in filtered_df.columns else 0,
-                            'compliance_rate': float((filtered_df['compliance_passed'] == True).sum() / len(filtered_df) * 100) if 'compliance_passed' in filtered_df.columns else 100
+                            'avg_cost_bps': float(safe_mean(filtered_df['total_cost_bps'])) if 'total_cost_bps' in filtered_df.columns else 0.0,
+                            'success_rate': float(((filtered_df['settlement_status'] == 'completed').sum() / len(filtered_df) * 100)) if 'settlement_status' in filtered_df.columns and len(filtered_df) > 0 else 0.0,
+                            'total_fees_usd': float(safe_sum(filtered_df['total_fees_usd'])) if 'total_fees_usd' in filtered_df.columns else 0.0,
+                            'avg_settlement_time_min': float(safe_mean(filtered_df['settlement_time_sec']) / 60) if 'settlement_time_sec' in filtered_df.columns else 0.0,
+                            'compliance_rate': float(((filtered_df['compliance_passed'] == True).sum() / len(filtered_df) * 100)) if 'compliance_passed' in filtered_df.columns and len(filtered_df) > 0 else 100.0
                         }
                         
                         insights = ai_engine.generate_executive_insights(exec_data)
@@ -945,44 +1077,44 @@ with first_data_tab:
     
     with col1:
         if 'total_cost_bps' in filtered_df.columns:
-            avg_cost = filtered_df['total_cost_bps'].mean()
-            if analysis_mode == "Optimization Comparison" and 'total_cost_bps' in filtered_df_before.columns:
-                before_cost = filtered_df_before['total_cost_bps'].mean()
+            avg_cost = safe_mean(filtered_df['total_cost_bps'])
+            if analysis_mode == "Optimization Comparison" and filtered_df_before is not None and 'total_cost_bps' in filtered_df_before.columns:
+                before_cost = safe_mean(filtered_df_before['total_cost_bps'])
                 delta = f"{calculate_improvement(before_cost, avg_cost):.1f}%"
             else:
                 delta = None
-            st.metric("Avg Cost (BPS)", f"{avg_cost:.2f}", delta, delta_color="inverse")
+            st.metric("Avg Cost (BPS)", format_val_or_na(avg_cost, "{:.2f}"), delta, delta_color="inverse")
         else:
             st.metric("Avg Cost (BPS)", "N/A")
     
     with col2:
         if 'settlement_status' in filtered_df.columns:
-            success_rate = (filtered_df['settlement_status'] == 'completed').sum() / len(filtered_df) * 100
-            if analysis_mode == "Optimization Comparison" and 'settlement_status' in filtered_df_before.columns:
-                before_success = (filtered_df_before['settlement_status'] == 'completed').sum() / len(filtered_df_before) * 100
+            success_rate = ((filtered_df['settlement_status'] == 'completed').sum() / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            if analysis_mode == "Optimization Comparison" and filtered_df_before is not None and 'settlement_status' in filtered_df_before.columns:
+                before_success = ((filtered_df_before['settlement_status'] == 'completed').sum() / len(filtered_df_before) * 100) if len(filtered_df_before) > 0 else 0.0
                 delta = f"+{success_rate - before_success:.1f}%"
             else:
                 delta = None
-            st.metric("Success Rate", f"{success_rate:.1f}%", delta)
+            st.metric("Success Rate", format_val_or_na(success_rate, "{:.1f}") + "%" if success_rate else "N/A", delta)
         else:
             st.metric("Success Rate", "N/A")
     
     with col3:
         if 'settlement_time_sec' in filtered_df.columns:
-            avg_time = filtered_df['settlement_time_sec'].mean() / 60
-            if analysis_mode == "Optimization Comparison" and 'settlement_time_sec' in filtered_df_before.columns:
-                before_time = filtered_df_before['settlement_time_sec'].mean() / 60
+            avg_time = safe_mean(filtered_df['settlement_time_sec']) / 60
+            if analysis_mode == "Optimization Comparison" and filtered_df_before is not None and 'settlement_time_sec' in filtered_df_before.columns:
+                before_time = safe_mean(filtered_df_before['settlement_time_sec']) / 60
                 delta = f"{calculate_improvement(before_time, avg_time):.1f}%"
             else:
                 delta = None
-            st.metric("Avg Settlement Time", f"{avg_time:.1f} min", delta, delta_color="inverse")
+            st.metric("Avg Settlement Time", format_val_or_na(avg_time, "{:.1f}") + " min" if avg_time else "N/A", delta, delta_color="inverse")
         else:
             st.metric("Avg Settlement Time", "N/A")
     
     with col4:
         if 'amount_source' in filtered_df.columns:
-            total_volume = filtered_df['amount_source'].sum() / 1_000_000
-            st.metric("Total Volume", f"${total_volume:.2f}M")
+            total_volume = safe_sum(filtered_df['amount_source']) / 1_000_000
+            st.metric("Total Volume", f"${total_volume:.2f}M" if total_volume else "N/A")
         else:
             st.metric("Total Volume", "N/A")
     
@@ -995,76 +1127,122 @@ with first_data_tab:
     
     with col6:
         if 'routing_hops' in filtered_df.columns:
-            avg_hops = filtered_df['routing_hops'].mean()
-            st.metric("Avg Routing Hops", f"{avg_hops:.2f}")
+            avg_hops = safe_mean(filtered_df['routing_hops'])
+            st.metric("Avg Routing Hops", format_val_or_na(avg_hops, "{:.2f}") if avg_hops else "N/A")
         else:
             st.metric("Avg Routing Hops", "N/A")
     
     with col7:
         if 'compliance_passed' in filtered_df.columns:
-            compliance_rate = (filtered_df['compliance_passed'] == True).sum() / len(filtered_df) * 100
-            st.metric("Compliance Rate", f"{compliance_rate:.1f}%")
+            compliance_rate = ((filtered_df['compliance_passed'] == True).sum() / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("Compliance Rate", format_val_or_na(compliance_rate, "{:.1f}") + "%" if compliance_rate else "N/A")
         else:
             st.metric("Compliance Rate", "N/A")
     
     with col8:
         if 'total_fees_usd' in filtered_df.columns:
-            total_fees = filtered_df['total_fees_usd'].sum() / 1000
-            st.metric("Total Fees", f"${total_fees:.1f}K")
+            total_fees = safe_sum(filtered_df['total_fees_usd']) / 1000
+            st.metric("Total Fees", f"${total_fees:.1f}K" if total_fees else "N/A")
         else:
             st.metric("Total Fees", "N/A")
     
     st.markdown("---")
     
     # Transaction volume over time
-    if 'timestamp' in filtered_df.columns:
+    if 'timestamp' in filtered_df.columns and filtered_df['timestamp'].notna().any():
         st.markdown("### 📊 Transaction Volume Trends")
         
-        daily_data = filtered_df.groupby(filtered_df['timestamp'].dt.date).agg({
-            'transfer_id': 'count',
-            'amount_source': 'sum' if 'amount_source' in filtered_df.columns else 'count',
-            'total_cost_bps': 'mean' if 'total_cost_bps' in filtered_df.columns else 'count',
-            'settlement_time_sec': 'mean' if 'settlement_time_sec' in filtered_df.columns else 'count'
-        }).reset_index()
+        # Build dynamic agg_map
+        agg_map = {}
+        # count
+        id_col = None
+        for possible_id in ['transfer_id', 'transaction_id', 'txn_id', 'id']:
+            if possible_id in filtered_df.columns:
+                id_col = possible_id
+                break
+        if id_col is not None:
+            agg_map[id_col] = 'count'
+        else:
+            # fallback to counting rows via any column
+            agg_map[filtered_df.columns[0]] = 'count'
         
-        daily_data.columns = ['date', 'count', 'volume', 'avg_cost_bps', 'avg_time_sec']
-        
-        fig = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=('Daily Transaction Count', 'Daily Volume ($)', 
-                           'Avg Cost (BPS)', 'Avg Settlement Time (min)'),
-            specs=[[{"secondary_y": False}, {"secondary_y": False}],
-                   [{"secondary_y": False}, {"secondary_y": False}]]
-        )
-        
-        fig.add_trace(
-            go.Scatter(x=daily_data['date'], y=daily_data['count'], 
-                      name='Txn Count', fill='tozeroy', line=dict(color='#1f77b4')),
-            row=1, col=1
-        )
-        
-        fig.add_trace(
-            go.Scatter(x=daily_data['date'], y=daily_data['volume'], 
-                      name='Volume', fill='tozeroy', line=dict(color='#2ca02c')),
-            row=1, col=2
-        )
-        
+        if 'amount_source' in filtered_df.columns:
+            agg_map['amount_source'] = 'sum'
         if 'total_cost_bps' in filtered_df.columns:
-            fig.add_trace(
-                go.Scatter(x=daily_data['date'], y=daily_data['avg_cost_bps'], 
-                          name='Avg Cost', line=dict(color='#ff7f0e')),
-                row=2, col=1
-            )
-        
+            agg_map['total_cost_bps'] = 'mean'
         if 'settlement_time_sec' in filtered_df.columns:
-            fig.add_trace(
-                go.Scatter(x=daily_data['date'], y=daily_data['avg_time_sec']/60, 
-                          name='Avg Time', line=dict(color='#d62728')),
-                row=2, col=2
-            )
+            agg_map['settlement_time_sec'] = 'mean'
         
-        fig.update_layout(height=600, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        # safe groupby
+        try:
+            daily_data = filtered_df.groupby(filtered_df['timestamp'].dt.date).agg(agg_map).reset_index()
+        except Exception:
+            daily_data = pd.DataFrame()
+        
+        # Rename columns dynamically
+        if not daily_data.empty:
+            col_map = {}
+            col_map[daily_data.columns[0]] = 'date'
+            idx = 1
+            # assign names in the order inserted into agg_map (dict preserves insertion order in py3.7+)
+            for key in list(agg_map.keys()):
+                if idx < len(daily_data.columns):
+                    if key == id_col or key == filtered_df.columns[0]:
+                        col_map[daily_data.columns[idx]] = 'count'
+                    elif key == 'amount_source':
+                        col_map[daily_data.columns[idx]] = 'volume'
+                    elif key == 'total_cost_bps':
+                        col_map[daily_data.columns[idx]] = 'avg_cost_bps'
+                    elif key == 'settlement_time_sec':
+                        col_map[daily_data.columns[idx]] = 'avg_time_sec'
+                    idx += 1
+            daily_data = daily_data.rename(columns=col_map)
+            
+            # Fill missing expected columns with zeros to avoid plotting errors
+            for expected_col in ['count', 'volume', 'avg_cost_bps', 'avg_time_sec']:
+                if expected_col not in daily_data.columns:
+                    daily_data[expected_col] = 0
+            
+            fig = make_subplots(
+                rows=2, cols=2,
+                subplot_titles=('Daily Transaction Count', 'Daily Volume ($)', 
+                               'Avg Cost (BPS)', 'Avg Settlement Time (min)'),
+                specs=[[{"secondary_y": False}, {"secondary_y": False}],
+                       [{"secondary_y": False}, {"secondary_y": False}]]
+            )
+            
+            fig.add_trace(
+                go.Scatter(x=daily_data['date'], y=daily_data['count'], 
+                          name='Txn Count', fill='tozeroy'),
+                row=1, col=1
+            )
+            
+            fig.add_trace(
+                go.Scatter(x=daily_data['date'], y=daily_data['volume'], 
+                          name='Volume', fill='tozeroy'),
+                row=1, col=2
+            )
+            
+            if 'avg_cost_bps' in daily_data.columns:
+                fig.add_trace(
+                    go.Scatter(x=daily_data['date'], y=daily_data['avg_cost_bps'], 
+                              name='Avg Cost'),
+                    row=2, col=1
+                )
+            
+            if 'avg_time_sec' in daily_data.columns:
+                fig.add_trace(
+                    go.Scatter(x=daily_data['date'], y=daily_data['avg_time_sec']/60, 
+                              name='Avg Time'),
+                    row=2, col=2
+                )
+            
+            fig.update_layout(height=600, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Not enough timestamped data to build daily trends.")
+    else:
+        st.info("Timestamp data not available for time series charts.")
 
 # TAB: Cost Analysis
 if ai_enabled:
@@ -1080,29 +1258,29 @@ with cost_tab:
     
     with col1:
         if 'gas_cost_usd' in filtered_df.columns:
-            total_gas = filtered_df['gas_cost_usd'].sum()
-            st.metric("Total Gas Costs", f"${total_gas:,.2f}")
+            total_gas = safe_sum(filtered_df['gas_cost_usd'])
+            st.metric("Total Gas Costs", f"${total_gas:,.2f}" if total_gas else "N/A")
         else:
             st.metric("Total Gas Costs", "N/A")
     
     with col2:
         if 'lp_fee_usd' in filtered_df.columns:
-            total_lp = filtered_df['lp_fee_usd'].sum()
-            st.metric("Total LP Fees", f"${total_lp:,.2f}")
+            total_lp = safe_sum(filtered_df['lp_fee_usd'])
+            st.metric("Total LP Fees", f"${total_lp:,.2f}" if total_lp else "N/A")
         else:
             st.metric("Total LP Fees", "N/A")
     
     with col3:
         if 'bridge_cost_usd' in filtered_df.columns:
-            total_bridge = filtered_df['bridge_cost_usd'].sum()
-            st.metric("Total Bridge Costs", f"${total_bridge:,.2f}")
+            total_bridge = safe_sum(filtered_df['bridge_cost_usd'])
+            st.metric("Total Bridge Costs", f"${total_bridge:,.2f}" if total_bridge else "N/A")
         else:
             st.metric("Total Bridge Costs", "N/A")
     
     with col4:
         if 'slippage_cost_usd' in filtered_df.columns:
-            total_slippage = filtered_df['slippage_cost_usd'].sum()
-            st.metric("Total Slippage", f"${total_slippage:,.2f}")
+            total_slippage = safe_sum(filtered_df['slippage_cost_usd'])
+            st.metric("Total Slippage", f"${total_slippage:,.2f}" if total_slippage else "N/A")
         else:
             st.metric("Total Slippage", "N/A")
     
@@ -1119,28 +1297,34 @@ with cost_tab:
             cost_components = pd.DataFrame({
                 'Component': ['Gas', 'LP Fees', 'Bridge', 'Slippage'],
                 'Amount': [
-                    filtered_df['gas_cost_usd'].sum(),
-                    filtered_df['lp_fee_usd'].sum(),
-                    filtered_df['bridge_cost_usd'].sum(),
-                    filtered_df['slippage_cost_usd'].sum()
+                    safe_sum(filtered_df['gas_cost_usd']),
+                    safe_sum(filtered_df['lp_fee_usd']),
+                    safe_sum(filtered_df['bridge_cost_usd']),
+                    safe_sum(filtered_df['slippage_cost_usd'])
                 ]
             })
             
-            fig = px.pie(cost_components, values='Amount', names='Component',
-                        title='Cost Distribution by Component',
-                        color_discrete_sequence=px.colors.qualitative.Set3)
-            st.plotly_chart(fig, use_container_width=True)
+            if cost_components['Amount'].sum() > 0:
+                fig = px.pie(cost_components, values='Amount', names='Component',
+                            title='Cost Distribution by Component')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Cost component totals are zero.")
         else:
             st.info("Cost component data not available")
     
     with col2:
         # Box plot of costs by business type
         if 'total_cost_bps' in filtered_df.columns and 'business_type' in filtered_df.columns:
-            fig = px.box(filtered_df, x='business_type', y='total_cost_bps',
-                        title='Cost Distribution by Business Type',
-                        color='business_type')
-            fig.update_xaxis(tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
+            plot_df = filtered_df[['business_type', 'total_cost_bps']].dropna()
+            if not plot_df.empty:
+                fig = px.box(plot_df, x='business_type', y='total_cost_bps',
+                            title='Cost Distribution by Business Type',
+                            color='business_type')
+                fig.update_xaxis(tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Not enough data to plot cost by business type")
         else:
             st.info("Cost by business type data not available")
     
@@ -1148,7 +1332,7 @@ with cost_tab:
     if 'business_type' in filtered_df.columns and 'total_cost_bps' in filtered_df.columns:
         st.markdown("### 📋 Cost Efficiency by Transaction Type")
         
-        agg_dict = {'transfer_id': 'count'}
+        agg_dict = {'transfer_id': 'count'} if 'transfer_id' in filtered_df.columns else {filtered_df.columns[0]: 'count'}
         if 'total_cost_bps' in filtered_df.columns:
             agg_dict['total_cost_bps'] = ['mean', 'median', 'std']
         if 'total_fees_usd' in filtered_df.columns:
@@ -1156,14 +1340,15 @@ with cost_tab:
         if 'amount_source' in filtered_df.columns:
             agg_dict['amount_source'] = 'sum'
         
-        cost_summary = filtered_df.groupby('business_type').agg(agg_dict).round(2)
-        
-        # Flatten column names
-        cost_summary.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col 
-                               for col in cost_summary.columns.values]
-        cost_summary = cost_summary.reset_index()
-        
-        st.dataframe(cost_summary, use_container_width=True)
+        try:
+            cost_summary = filtered_df.groupby('business_type').agg(agg_dict).round(2)
+            # Flatten column names
+            cost_summary.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col 
+                                   for col in cost_summary.columns.values]
+            cost_summary = cost_summary.reset_index()
+            st.dataframe(cost_summary, use_container_width=True)
+        except Exception:
+            st.info("Unable to compute cost efficiency table with available data.")
 
 # TAB: Performance Metrics  
 if ai_enabled:
@@ -1180,31 +1365,31 @@ with perf_tab:
     with col1:
         if 'settlement_status' in filtered_df.columns:
             completed = (filtered_df['settlement_status'] == 'completed').sum()
-            completion_rate = completed / len(filtered_df) * 100
-            st.metric("Completion Rate", f"{completion_rate:.1f}%")
+            completion_rate = (completed / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("Completion Rate", format_val_or_na(completion_rate, "{:.1f}") + "%" if completion_rate else "N/A")
         else:
             st.metric("Completion Rate", "N/A")
     
     with col2:
         if 'settlement_status' in filtered_df.columns:
             failed = (filtered_df['settlement_status'] == 'failed').sum()
-            failure_rate = failed / len(filtered_df) * 100
-            st.metric("Failure Rate", f"{failure_rate:.1f}%")
+            failure_rate = (failed / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("Failure Rate", format_val_or_na(failure_rate, "{:.1f}") + "%" if failure_rate else "N/A")
         else:
             st.metric("Failure Rate", "N/A")
     
     with col3:
         if 'settlement_status' in filtered_df.columns:
             pending = (filtered_df['settlement_status'] == 'pending').sum()
-            pending_rate = pending / len(filtered_df) * 100
-            st.metric("Pending Rate", f"{pending_rate:.1f}%")
+            pending_rate = (pending / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("Pending Rate", format_val_or_na(pending_rate, "{:.1f}") + "%" if pending_rate else "N/A")
         else:
             st.metric("Pending Rate", "N/A")
     
     with col4:
         if 'settlement_time_sec' in filtered_df.columns:
-            avg_settlement = filtered_df['settlement_time_sec'].mean()
-            st.metric("Avg Settlement Time", f"{avg_settlement/60:.1f} min")
+            avg_settlement = safe_mean(filtered_df['settlement_time_sec'])
+            st.metric("Avg Settlement Time", format_val_or_na(avg_settlement/60 if avg_settlement else None, "{:.1f}") + " min" if avg_settlement else "N/A")
         else:
             st.metric("Avg Settlement Time", "N/A")
     
@@ -1218,12 +1403,18 @@ with perf_tab:
     with col1:
         # Settlement time by urgency
         if 'urgency_level' in filtered_df.columns and 'settlement_time_sec' in filtered_df.columns:
-            fig = px.box(filtered_df, x='urgency_level', y='settlement_time_sec',
-                        title='Settlement Time by Urgency Level',
-                        color='urgency_level',
-                        category_orders={'urgency_level': ['urgent', 'standard', 'low']})
-            fig.update_yaxis(title='Settlement Time (seconds)')
-            st.plotly_chart(fig, use_container_width=True)
+            plot_df = filtered_df[['urgency_level', 'settlement_time_sec']].dropna()
+            if not plot_df.empty:
+                # Ensure category orders exists safely
+                category_orders = {'urgency_level': ['urgent', 'standard', 'low']}
+                fig = px.box(plot_df, x='urgency_level', y='settlement_time_sec',
+                            title='Settlement Time by Urgency Level',
+                            color='urgency_level',
+                            category_orders=category_orders)
+                fig.update_yaxis(title='Settlement Time (seconds)')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Not enough data for settlement time by urgency")
         else:
             st.info("Settlement time by urgency data not available")
     
@@ -1234,12 +1425,14 @@ with perf_tab:
                 'settlement_time_sec': ['mean', 'count']
             }).reset_index()
             hop_time.columns = ['Hops', 'Avg Time (sec)', 'Count']
-            
-            fig = px.bar(hop_time, x='Hops', y='Avg Time (sec)',
-                        title='Avg Settlement Time by Routing Hops',
-                        text='Count', color='Avg Time (sec)',
-                        color_continuous_scale='Reds')
-            st.plotly_chart(fig, use_container_width=True)
+            if not hop_time.empty:
+                fig = px.bar(hop_time, x='Hops', y='Avg Time (sec)',
+                            title='Avg Settlement Time by Routing Hops',
+                            text='Count', color='Avg Time (sec)',
+                            color_continuous_scale='Reds')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Not enough data to plot settlement time by hops")
         else:
             st.info("Settlement time by routing hops data not available")
     
@@ -1251,37 +1444,48 @@ with perf_tab:
     with col1:
         # Success by user tier
         if 'user_tier' in filtered_df.columns and 'settlement_status' in filtered_df.columns:
-            success_by_tier = filtered_df.groupby('user_tier')['settlement_status'].apply(
-                lambda x: (x == 'completed').sum() / len(x) * 100
-            ).reset_index()
-            success_by_tier.columns = ['user_tier', 'success_rate']
-            
-            fig = px.bar(success_by_tier, x='user_tier', y='success_rate',
-                        title='Success Rate by User Tier',
-                        text='success_rate', color='success_rate',
-                        color_continuous_scale='RdYlGn', range_color=[0, 100])
-            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                success_by_tier = filtered_df.groupby('user_tier')['settlement_status'].apply(
+                    lambda x: (x == 'completed').sum() / len(x) * 100 if len(x) > 0 else 0.0
+                ).reset_index()
+                success_by_tier.columns = ['user_tier', 'success_rate']
+                if not success_by_tier.empty:
+                    fig = px.bar(success_by_tier, x='user_tier', y='success_rate',
+                                title='Success Rate by User Tier',
+                                text='success_rate', color='success_rate',
+                                color_continuous_scale='RdYlGn', range_color=[0, 100])
+                    fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No success-by-tier data to display")
+            except Exception:
+                st.info("Could not compute success rate by user tier.")
         else:
             st.info("Success rate by user tier data not available")
     
     with col2:
         # Success by liquidity availability
         if 'liquidity_available' in filtered_df.columns and 'settlement_status' in filtered_df.columns:
-            success_by_liquidity = filtered_df.groupby('liquidity_available')['settlement_status'].apply(
-                lambda x: (x == 'completed').sum() / len(x) * 100
-            ).reset_index()
-            success_by_liquidity.columns = ['liquidity_available', 'success_rate']
-            success_by_liquidity['liquidity_available'] = success_by_liquidity['liquidity_available'].map(
-                {True: 'Available', False: 'Not Available'}
-            )
-            
-            fig = px.bar(success_by_liquidity, x='liquidity_available', y='success_rate',
-                        title='Success Rate by Liquidity Availability',
-                        text='success_rate', color='success_rate',
-                        color_continuous_scale='RdYlGn', range_color=[0, 100])
-            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                success_by_liquidity = filtered_df.groupby('liquidity_available')['settlement_status'].apply(
+                    lambda x: (x == 'completed').sum() / len(x) * 100 if len(x) > 0 else 0.0
+                ).reset_index()
+                success_by_liquidity.columns = ['liquidity_available', 'success_rate']
+                success_by_liquidity['liquidity_available'] = success_by_liquidity['liquidity_available'].map(
+                    {True: 'Available', False: 'Not Available'}
+                ).fillna(success_by_liquidity['liquidity_available'].astype(str))
+                
+                if not success_by_liquidity.empty:
+                    fig = px.bar(success_by_liquidity, x='liquidity_available', y='success_rate',
+                                title='Success Rate by Liquidity Availability',
+                                text='success_rate', color='success_rate',
+                                color_continuous_scale='RdYlGn', range_color=[0, 100])
+                    fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No success-by-liquidity data to display")
+            except Exception:
+                st.info("Could not compute success rate by liquidity.")
         else:
             st.info("Success rate by liquidity data not available")
 
@@ -1306,24 +1510,24 @@ with route_tab:
     
     with col2:
         if 'routing_hops' in filtered_df.columns:
-            avg_hops = filtered_df['routing_hops'].mean()
-            st.metric("Avg Routing Hops", f"{avg_hops:.2f}")
+            avg_hops = safe_mean(filtered_df['routing_hops'])
+            st.metric("Avg Routing Hops", format_val_or_na(avg_hops, "{:.2f}") if avg_hops else "N/A")
         else:
             st.metric("Avg Routing Hops", "N/A")
     
     with col3:
         if 'routing_hops' in filtered_df.columns:
             single_hop = (filtered_df['routing_hops'] == 1).sum()
-            single_hop_pct = single_hop / len(filtered_df) * 100
-            st.metric("Single-Hop Routes", f"{single_hop_pct:.1f}%")
+            single_hop_pct = (single_hop / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("Single-Hop Routes", format_val_or_na(single_hop_pct, "{:.1f}") + "%" if single_hop_pct else "N/A")
         else:
             st.metric("Single-Hop Routes", "N/A")
     
     with col4:
         if 'routing_hops' in filtered_df.columns:
             multi_hop = (filtered_df['routing_hops'] >= 3).sum()
-            multi_hop_pct = multi_hop / len(filtered_df) * 100
-            st.metric("Multi-Hop (3+) Routes", f"{multi_hop_pct:.1f}%")
+            multi_hop_pct = (multi_hop / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("Multi-Hop (3+) Routes", format_val_or_na(multi_hop_pct, "{:.1f}") + "%" if multi_hop_pct else "N/A")
         else:
             st.metric("Multi-Hop (3+) Routes", "N/A")
     
@@ -1333,47 +1537,66 @@ with route_tab:
     if all(col in filtered_df.columns for col in ['source_chain', 'dest_chain', 'total_cost_bps']):
         st.markdown("### 🗺️ Route Performance by Chain Pair")
         
-        route_data = filtered_df.groupby(['source_chain', 'dest_chain']).agg({
+        agg_map = {
             'total_cost_bps': 'mean',
-            'transfer_id': 'count',
-            'settlement_time_sec': 'mean' if 'settlement_time_sec' in filtered_df.columns else 'count'
-        }).reset_index()
+            'transfer_id': 'count' if 'transfer_id' in filtered_df.columns else filtered_df.columns[0],
+        }
+        if 'settlement_time_sec' in filtered_df.columns:
+            agg_map['settlement_time_sec'] = 'mean'
         
-        route_data.columns = ['Source Chain', 'Dest Chain', 'Avg Cost (BPS)', 'Count', 'Avg Time (sec)']
-        
-        # Display top routes
-        st.markdown("#### Top 10 Routes by Volume")
-        top_routes = route_data.nlargest(10, 'Count')[
-            ['Source Chain', 'Dest Chain', 'Count', 'Avg Cost (BPS)', 'Avg Time (sec)']
-        ]
-        st.dataframe(top_routes, use_container_width=True)
-        
-        # Scatter plot of routes
-        fig = px.scatter(route_data, x='Avg Cost (BPS)', y='Avg Time (sec)',
-                        size='Count', color='Count',
-                        hover_data=['Source Chain', 'Dest Chain'],
-                        title='Route Performance: Cost vs Speed',
-                        color_continuous_scale='Viridis')
-        st.plotly_chart(fig, use_container_width=True)
+        try:
+            route_data = filtered_df.groupby(['source_chain', 'dest_chain']).agg(agg_map).reset_index()
+            # normalize column names
+            col_names = ['Source Chain', 'Dest Chain', 'Avg Cost (BPS)', 'Count']
+            if 'settlement_time_sec' in agg_map:
+                col_names.append('Avg Time (sec)')
+            # ensure we don't mismatch columns
+            while len(col_names) < len(route_data.columns):
+                col_names.append(route_data.columns[len(col_names)])
+            route_data.columns = col_names[:len(route_data.columns)]
+            
+            # Display top routes
+            st.markdown("#### Top 10 Routes by Volume")
+            top_routes = route_data.nlargest(10, 'Count')[
+                ['Source Chain', 'Dest Chain', 'Count', 'Avg Cost (BPS)'] + (['Avg Time (sec)'] if 'Avg Time (sec)' in route_data.columns else [])
+            ]
+            st.dataframe(top_routes, use_container_width=True)
+            
+            # Scatter plot of routes
+            if 'Avg Time (sec)' in route_data.columns:
+                fig = px.scatter(route_data, x='Avg Cost (BPS)', y='Avg Time (sec)',
+                                size='Count', color='Count',
+                                hover_data=['Source Chain', 'Dest Chain'],
+                                title='Route Performance: Cost vs Speed')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                fig = px.scatter(route_data, x='Avg Cost (BPS)', y='Count',
+                                size='Count', color='Count',
+                                hover_data=['Source Chain', 'Dest Chain'],
+                                title='Route Performance: Cost vs Volume')
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception:
+            st.info("Could not compute route performance with available data.")
     
     # Venue performance
     if 'venues_used' in filtered_df.columns:
         st.markdown("### 🏦 Venue Performance Analysis")
         
-        # Extract and count venue usage
+        # Extract and count venue usage robustly
         all_venues = []
-        for venues in filtered_df['venues_used']:
-            if pd.notna(venues):
-                all_venues.extend(str(venues).split(','))
+        for venues in filtered_df['venues_used'].dropna():
+            items = [v.strip() for v in str(venues).split(',') if v.strip()]
+            all_venues.extend(items)
         
         if all_venues:
             venue_counts = pd.Series(all_venues).value_counts().reset_index()
             venue_counts.columns = ['Venue', 'Count']
             
-            # Calculate average cost per venue
+            # Calculate average cost per venue (top 10)
             venue_stats = []
-            for venue in venue_counts['Venue'][:10]:  # Top 10 venues
-                venue_txns = filtered_df[filtered_df['venues_used'].str.contains(venue, na=False)]
+            for venue in venue_counts['Venue'][:10]:
+                mask = filtered_df['venues_used'].fillna('').str.contains(venue, na=False)
+                venue_txns = filtered_df[mask]
                 if len(venue_txns) > 0:
                     venue_stat = {
                         'Venue': venue,
@@ -1381,13 +1604,13 @@ with route_tab:
                     }
                     
                     if 'total_cost_bps' in venue_txns.columns:
-                        venue_stat['Avg Cost (BPS)'] = venue_txns['total_cost_bps'].mean()
+                        venue_stat['Avg Cost (BPS)'] = safe_mean(venue_txns['total_cost_bps'])
                     if 'settlement_time_sec' in venue_txns.columns:
-                        venue_stat['Avg Time (min)'] = venue_txns['settlement_time_sec'].mean() / 60
+                        venue_stat['Avg Time (min)'] = safe_mean(venue_txns['settlement_time_sec']) / 60
                     if 'settlement_status' in venue_txns.columns:
                         venue_stat['Success Rate (%)'] = (venue_txns['settlement_status'] == 'completed').sum() / len(venue_txns) * 100
                     if 'amount_source' in venue_txns.columns:
-                        venue_stat['Total Volume ($)'] = venue_txns['amount_source'].sum()
+                        venue_stat['Total Volume ($)'] = safe_sum(venue_txns['amount_source'])
                     
                     venue_stats.append(venue_stat)
             
@@ -1400,7 +1623,7 @@ with route_tab:
                     fig = px.bar(venue_df.sort_values('Count', ascending=False), 
                                 x='Venue', y='Count',
                                 title='Transaction Volume by Venue',
-                                color='Count', color_continuous_scale='Blues')
+                                color='Count')
                     fig.update_xaxis(tickangle=-45)
                     st.plotly_chart(fig, use_container_width=True)
                 
@@ -1410,14 +1633,16 @@ with route_tab:
                                         size='Count', 
                                         color='Success Rate (%)' if 'Success Rate (%)' in venue_df.columns else 'Count',
                                         hover_data=['Venue'],
-                                        title='Venue Performance: Cost vs Speed',
-                                        color_continuous_scale='RdYlGn',
-                                        range_color=[90, 100] if 'Success Rate (%)' in venue_df.columns else None)
+                                        title='Venue Performance: Cost vs Speed')
                         st.plotly_chart(fig, use_container_width=True)
                 
                 # Venue performance table
                 st.markdown("### 📊 Detailed Venue Statistics")
                 st.dataframe(venue_df.sort_values('Count', ascending=False), use_container_width=True)
+            else:
+                st.info("No venue statistics available")
+        else:
+            st.info("No venues used data available")
 
 # TAB: Regional & Compliance
 if ai_enabled:
@@ -1447,15 +1672,15 @@ with regional_tab:
     
     with col3:
         if 'compliance_passed' in filtered_df.columns:
-            compliance_rate = (filtered_df['compliance_passed'] == True).sum() / len(filtered_df) * 100
-            st.metric("Compliance Rate", f"{compliance_rate:.1f}%")
+            compliance_rate = ((filtered_df['compliance_passed'] == True).sum() / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("Compliance Rate", format_val_or_na(compliance_rate, "{:.1f}") + "%" if compliance_rate else "N/A")
         else:
             st.metric("Compliance Rate", "N/A")
     
     with col4:
         if 'kyc_status' in filtered_df.columns:
-            kyc_verified = (filtered_df['kyc_status'] == 'verified').sum() / len(filtered_df) * 100
-            st.metric("KYC Verified", f"{kyc_verified:.1f}%")
+            kyc_verified = ((filtered_df['kyc_status'] == 'verified').sum() / len(filtered_df) * 100) if len(filtered_df) > 0 else 0.0
+            st.metric("KYC Verified", format_val_or_na(kyc_verified, "{:.1f}") + "%" if kyc_verified else "N/A")
         else:
             st.metric("KYC Verified", "N/A")
     
@@ -1465,7 +1690,22 @@ with regional_tab:
     if 'region' in filtered_df.columns:
         st.markdown("### 🌍 Performance by Region")
         
-        agg_dict = {'transfer_id': 'count'}
+        # Build aggregation dictionary with safe column checking
+        agg_dict = {}
+        
+        # Use any available ID column for counting, or first column as fallback
+        count_col = None
+        for possible_id in ['transfer_id', 'transaction_id', 'txn_id', 'id']:
+            if possible_id in filtered_df.columns:
+                count_col = possible_id
+                break
+        
+        if count_col is None:
+            # Use first column as fallback
+            count_col = filtered_df.columns[0]
+        
+        agg_dict[count_col] = 'count'
+        
         if 'amount_source' in filtered_df.columns:
             agg_dict['amount_source'] = 'sum'
         if 'total_cost_bps' in filtered_df.columns:
@@ -1473,59 +1713,112 @@ with regional_tab:
         if 'settlement_time_sec' in filtered_df.columns:
             agg_dict['settlement_time_sec'] = 'mean'
         if 'settlement_status' in filtered_df.columns:
-            agg_dict['settlement_status'] = lambda x: (x == 'completed').sum() / len(x) * 100
+            agg_dict['settlement_status'] = lambda x: (x == 'completed').sum() / len(x) * 100 if len(x) > 0 else 0.0
         if 'compliance_passed' in filtered_df.columns:
-            agg_dict['compliance_passed'] = lambda x: (x == True).sum() / len(x) * 100
+            agg_dict['compliance_passed'] = lambda x: (x == True).sum() / len(x) * 100 if len(x) > 0 else 0.0
         
-        regional_stats = filtered_df.groupby('region').agg(agg_dict).reset_index()
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
+        try:
+            regional_stats = filtered_df.groupby('region').agg(agg_dict).reset_index()
+        except Exception:
+            regional_stats = pd.DataFrame()
+    
+        # Rename columns properly
+        if not regional_stats.empty:
+            new_cols = ['Region', 'Count']
+            col_idx = 2
             if 'amount_source' in filtered_df.columns:
-                fig = px.bar(regional_stats, x='region', y='amount_source',
-                            title='Transaction Volume by Region',
-                            color='amount_source', color_continuous_scale='Blues')
-                st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            fig = px.bar(regional_stats, x='region', y='transfer_id',
-                        title='Transaction Count by Region',
-                        color='transfer_id', color_continuous_scale='Greens')
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Regional performance table
-        st.dataframe(regional_stats, use_container_width=True)
+                new_cols.append('Volume ($)')
+                col_idx += 1
+            if 'total_cost_bps' in filtered_df.columns:
+                new_cols.append('Avg Cost (BPS)')
+                col_idx += 1
+            if 'settlement_time_sec' in filtered_df.columns:
+                new_cols.append('Avg Time (sec)')
+                col_idx += 1
+            if 'settlement_status' in filtered_df.columns:
+                new_cols.append('Success Rate (%)')
+                col_idx += 1
+            if 'compliance_passed' in filtered_df.columns:
+                new_cols.append('Compliance Rate (%)')
+                col_idx += 1
+            # Ensure length match
+            new_cols = new_cols[:len(regional_stats.columns)]
+            regional_stats.columns = new_cols
+            st.dataframe(regional_stats.sort_values('Count', ascending=False), use_container_width=True)
+        else:
+            st.info("Not enough regional data to display aggregated stats")
     
     # Beneficiary country analysis
     if 'beneficiary_country' in filtered_df.columns:
         st.markdown("### 🗺️ Top Beneficiary Countries")
         
-        country_data = filtered_df[filtered_df['beneficiary_country'].notna()].groupby('beneficiary_country').agg({
-            'transfer_id': 'count',
-            'amount_source': 'sum' if 'amount_source' in filtered_df.columns else 'count',
-            'total_cost_bps': 'mean' if 'total_cost_bps' in filtered_df.columns else 'count',
-            'settlement_status': lambda x: (x == 'completed').sum() / len(x) * 100 if 'settlement_status' in filtered_df.columns else 0
-        }).reset_index()
+        country_valid = filtered_df[filtered_df['beneficiary_country'].notna()]
         
-        country_data.columns = ['Country', 'Count', 'Volume ($)', 'Avg Cost (BPS)', 'Success Rate (%)']
-        country_data = country_data.sort_values('Count', ascending=False).head(15)
+        # Find count column
+        count_col = None
+        for possible_id in ['transfer_id', 'transaction_id', 'txn_id', 'id']:
+            if possible_id in country_valid.columns:
+                count_col = possible_id
+                break
+        if count_col is None:
+            count_col = country_valid.columns[0]
         
-        col1, col2 = st.columns(2)
+        country_agg = {count_col: 'count'}
+        if 'amount_source' in country_valid.columns:
+            country_agg['amount_source'] = 'sum'
+        if 'total_cost_bps' in country_valid.columns:
+            country_agg['total_cost_bps'] = 'mean'
+        if 'settlement_status' in country_valid.columns:
+            country_agg['settlement_status'] = lambda x: (x == 'completed').sum() / len(x) * 100 if len(x) > 0 else 0.0
         
-        with col1:
-            fig = px.bar(country_data, x='Country', y='Count',
-                        title='Top 15 Beneficiary Countries by Transaction Count',
-                        color='Success Rate (%)', color_continuous_scale='RdYlGn',
-                        range_color=[90, 100])
-            fig.update_xaxis(tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            fig = px.treemap(country_data, path=['Country'], values='Volume ($)',
-                            title='Transaction Volume Distribution by Country',
-                            color='Avg Cost (BPS)', color_continuous_scale='RdYlGn_r')
-            st.plotly_chart(fig, use_container_width=True)
+        try:
+            country_data = country_valid.groupby('beneficiary_country').agg(country_agg).reset_index()
+            # Normalize columns to expected names safely
+            # Build the output columns list depending on what aggregated columns exist
+            out_cols = ['Country']
+            # We don't strictly know order; map them by inference
+            # Build a mapping by position
+            # The groupby output columns will be: [beneficiary_country, <agg1>, <agg2>, ...]
+            # We'll create reasonable column names depending on which keys were in country_agg
+            col_names = ['Country']
+            for k in list(country_agg.keys()):
+                if k == count_col:
+                    col_names.append('Count')
+                elif k == 'amount_source':
+                    col_names.append('Volume ($)')
+                elif k == 'total_cost_bps':
+                    col_names.append('Avg Cost (BPS)')
+                elif k == 'settlement_status':
+                    col_names.append('Success Rate (%)')
+            country_data.columns = col_names[:len(country_data.columns)]
+            
+            # Ensure we have a consistent set of columns for plotting
+            expected_cols = ['Country', 'Count', 'Volume ($)', 'Avg Cost (BPS)', 'Success Rate (%)']
+            # Add missing columns if needed
+            for c in expected_cols:
+                if c not in country_data.columns:
+                    country_data[c] = 0
+            country_data = country_data[expected_cols].sort_values('Count', ascending=False).head(15)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig = px.bar(country_data, x='Country', y='Count',
+                            title='Top 15 Beneficiary Countries by Transaction Count',
+                            color='Success Rate (%)')
+                fig.update_xaxis(tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                if country_data['Volume ($)'].sum() > 0:
+                    fig = px.treemap(country_data, path=['Country'], values='Volume ($)',
+                                    title='Transaction Volume Distribution by Country',
+                                    color='Avg Cost (BPS)')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No volume data to display in treemap")
+        except Exception:
+            st.info("Could not compute beneficiary country aggregates.")
     
     # Compliance analysis
     if 'compliance_passed' in filtered_df.columns:
@@ -1536,26 +1829,34 @@ with regional_tab:
         with col1:
             # Compliance by region
             if 'region' in filtered_df.columns:
-                compliance_by_region = filtered_df.groupby('region')['compliance_passed'].apply(
-                    lambda x: (x == True).sum() / len(x) * 100
-                ).reset_index()
-                compliance_by_region.columns = ['Region', 'Compliance Rate (%)']
-                
-                fig = px.bar(compliance_by_region, x='Region', y='Compliance Rate (%)',
-                            title='Compliance Rate by Region',
-                            color='Compliance Rate (%)', color_continuous_scale='RdYlGn',
-                            range_color=[0, 100], text='Compliance Rate (%)')
-                fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
+                try:
+                    compliance_by_region = filtered_df.groupby('region')['compliance_passed'].apply(
+                        lambda x: (x == True).sum() / len(x) * 100 if len(x) > 0 else 0.0
+                    ).reset_index()
+                    compliance_by_region.columns = ['Region', 'Compliance Rate (%)']
+                    
+                    fig = px.bar(compliance_by_region, x='Region', y='Compliance Rate (%)',
+                                title='Compliance Rate by Region',
+                                color='Compliance Rate (%)', text='Compliance Rate (%)')
+                    fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    st.info("Could not compute compliance by region.")
+            else:
+                st.info("Region data not available for compliance breakdown")
         
         with col2:
             # KYC status distribution
             if 'kyc_status' in filtered_df.columns:
                 kyc_dist = filtered_df['kyc_status'].value_counts()
-                fig = px.pie(values=kyc_dist.values, names=kyc_dist.index,
-                            title='KYC Status Distribution',
-                            color_discrete_sequence=px.colors.qualitative.Set2)
-                st.plotly_chart(fig, use_container_width=True)
+                if not kyc_dist.empty:
+                    fig = px.pie(values=kyc_dist.values, names=kyc_dist.index,
+                                title='KYC Status Distribution')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No KYC data available")
+            else:
+                st.info("KYC status data not available")
 
 # Footer
 st.markdown("---")
