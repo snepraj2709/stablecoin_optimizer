@@ -186,11 +186,10 @@ if analysis_mode == "Optimization Comparison" and filtered_baseline is not None:
         
         with col1:
             cost_improvement = metrics['avg_cost_improvement_bps']
-            st.metric(
-                "Cost Reduction",
-                f"{cost_improvement:.1f} BPS",
-                f"{(cost_improvement/metrics_baseline['avg_cost_bps']*100):.1f}%"
-            )
+            base = metrics_baseline.get('avg_cost_bps', 0)
+            pct = (cost_improvement / base * 100) if base else 0
+            st.metric("Cost Reduction", f"{cost_improvement:.1f} BPS", f"{pct:.1f}%")
+
         
         with col2:
             savings = metrics['total_savings_usd']
