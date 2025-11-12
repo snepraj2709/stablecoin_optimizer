@@ -1,8 +1,11 @@
-pandas
-numpy
 python-dotenv
 openai
 fastapi
 pydantic
 uvicorn
 pulp
+streamlit==1.32.0
+pandas==2.2.0
+plotly==5.19.0
+numpy==1.26.4
+openai==1.12.0
