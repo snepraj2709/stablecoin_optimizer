@@ -58,6 +58,7 @@ class OptimizationResult:
     """Complete optimization result"""
     transfer_id: str
     status: str  # "optimal", "feasible", "infeasible"
+    original_type: TransactionType
     
     # Route details
     route_segments: List[RouteSegment]
@@ -230,6 +231,7 @@ class UnifiedOptimizer:
             return OptimizationResult(
                 transfer_id=normalized_tx.transfer_id,
                 status="infeasible",
+                original_type=normalized_tx.original_type,
                 route_segments=[],
                 num_routes=0,
                 total_amount_usd=amount,
@@ -389,6 +391,7 @@ class UnifiedOptimizer:
             return OptimizationResult(
                 transfer_id=normalized_tx.transfer_id,
                 status="infeasible",
+                original_type= normalized_tx.original_type,
                 route_segments=[],
                 num_routes=0,
                 total_amount_usd=amount,
@@ -518,6 +521,7 @@ class UnifiedOptimizer:
         return OptimizationResult(
             transfer_id=normalized_tx.transfer_id,
             status=status.lower(),
+            original_type= normalized_tx.original_type,
             route_segments=route_segments,
             num_routes=len(route_segments),
             total_amount_usd=total_amount,
@@ -572,6 +576,7 @@ class UnifiedOptimizer:
                 results.append(OptimizationResult(
                     transfer_id=tx.transfer_id,
                     status="error",
+                    original_type= tx.original_type,
                     route_segments=[],
                     num_routes=0,
                     total_amount_usd=tx.amount_usd,
@@ -621,6 +626,7 @@ class ResultExporter:
             base_row = {
                 'transfer_id': result.transfer_id,
                 'status': result.status,
+                'original_type': result.original_type,
                 'num_routes': result.num_routes,
                 'total_amount_usd': result.total_amount_usd,
                 'total_cost_usd': result.total_cost_usd,
