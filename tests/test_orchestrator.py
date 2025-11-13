@@ -4,10 +4,9 @@ Pytest tests for the Orchestrator API
 
 Tests the minimal batch processing flow end-to-end.
 """
-
-import pytest
 import time
-import os
+import json
+import pytest
 from fastapi.testclient import TestClient
 
 # Enable test mode for synchronous processing
@@ -128,3 +127,34 @@ class TestOrchestrator:
             assert "total_amount_usd" in result
             assert "total_cost_usd" in result
             assert "num_routes" in result
+
+
+    def poll_status(batch_id: str, timeout_seconds: int = 30):
+        deadline = time.time() + timeout_seconds
+        last = None
+        while time.time() < deadline:
+            r = client.get(f"/batches/{batch_id}/status")
+            assert r.status_code == 200, f"status endpoint returned {r.status_code}: {r.text}"
+            data = r.json()
+            last = data
+            if data.get("status") == "COMPLETED":
+                return data
+            if data.get("status") == "FAILED":
+                pytest.fail(f"Batch failed: {json.dumps(data)}")
+            time.sleep(0.5)
+        pytest.fail(f"Timeout waiting for batch to complete. Last status: {last}")
+
+    def test_post_batch_and_complete():
+        # Post a small batch
+        payload = {"n": 5, "use_mip": False, "top_k": 3}
+        r = client.post("/batches", json=payload)
+        assert r.status_code in (200, 201), r.text
+        j = r.json()
+        assert "batch_id" in j
+        batch_id = j["batch_id"]
+
+        # Poll until completed or timeout
+        final = _poll_status(batch_id, timeout_seconds=30)
+        assert final["status"] == "COMPLETED"
+        progress = final.get("progress", {})
+        assert progress.get("optimized", 0) == 5
