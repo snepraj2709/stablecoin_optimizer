@@ -262,7 +262,7 @@ def process_batch_job(batch_id: str, n: int, use_mip: bool, mip_time_limit: int,
         
         # Stage 1: Generate transfers
         generate_fn, using_fallback = import_with_fallback(
-            "normalizer.transfer_generator", "generate_transfers", fallback_generate_transfers
+            "normalizer.normalizer_integration", "generate_transfers", fallback_generate_transfers
         )
         
         if using_fallback:
@@ -286,7 +286,7 @@ def process_batch_job(batch_id: str, n: int, use_mip: bool, mip_time_limit: int,
         publish_event(batch_id, "NORMALIZING", redis_conn=redis_conn)
         
         normalize_fn, using_fallback = import_with_fallback(
-            "normalizer.normalizer", "normalize_transfers", fallback_normalize_transfers
+            "normalizer.normalizer_integration", "normalize_transfers", fallback_normalize_transfers
         )
         
         if using_fallback:
