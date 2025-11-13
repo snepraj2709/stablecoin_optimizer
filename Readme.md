@@ -95,6 +95,49 @@ Average settlement time: 245 seconds
 Settlement success rate: 92.0%
 ```
 
+
+
+### Data flow architecture
+flowchart TD
+  subgraph INGEST["1. RAW INPUTS"]
+    A1[Stablecoin API] --> N
+    A2[CSV / Webhook / ERP / Synthetic] --> N
+  end
+
+  subgraph NORM["2. NORMALIZER"]
+    N[Normalizer: Transaction dataclass / clean fields / types]
+  end
+
+  subgraph ADAPT["3. ADAPTER"]
+    AD[Adapter: enrich with candidate routes / weights / pre-checks]
+  end
+
+  subgraph OPT["4. OPTIMIZER"]
+    O[Optimizer: MIP solver (α·cost + β·time + γ·risk)]
+    O[Hard constraints: (max cost, max time, max slippage)]
+    O[Context flags (cross-border, high-value, fast settlement)]
+  end
+
+  subgraph ANALYTICS["5. TREASURY ANALYTICS"]
+    AN[KPI timeseries / idle capital / FX exposure]
+  end
+
+  subgraph AI["6. AI INSIGHTS"]
+    AIo[Summaries / anomalies / recommendations]
+  end
+
+  subgraph DASH["7. DASHBOARD"]
+    D[Streamlit / React UI]
+  end
+
+  %% flow
+  N --> AD
+  AD --> O
+  O --> AN
+  AN --> AIo
+  AIo --> D
+
+
 ### 8. Test the Optimizer
 
 #### Option A: Run Demo Script
@@ -215,17 +258,6 @@ engine = create_engine(os.getenv('DATABASE_URL'))
 ```
 
 ## Monitoring
-
-### Add Logging
-
-```python
-import logging
-
-logging.basicConfig(
-    level=os.getenv('LOG_LEVEL', 'INFO'),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-```
 
 ### Prometheus Metrics
 
