@@ -36,7 +36,7 @@ except Exception:
 
 # Prometheus metrics are defined in api.metrics; import or create stubs if not available.
 try:
-    from api.metrics import (
+    from api.metrics_registry import (
         batches_started_total,
         batches_in_progress,
         batch_processing_time_seconds,
@@ -280,20 +280,27 @@ def process_batch_job(batch_id: str, n: int = 10, use_mip: bool = False, mip_tim
         state["kpis"]["duration_seconds"] = round(time.time() - started, 3)
         save_state(batch_id, state)
         publish_event(batch_id, "COMPLETED", {"optimized": len(optimized)})
-        logger.info("Completed batch %s: %s items optimized in %.2fs", batch_id, len(optimized), time.time() - started)
+        logger.info(
+            "Completed batch %s: %s items optimized in %.2fs",
+            batch_id, len(optimized), time.time() - started
+        )
 
         # Optional: generate AI insights (if ai_insights module available)
         try:
-            import ai_insights
-            from ai_insights.engine import AIInsightsEngine
+            from ai.ai_insights import AIInsightsEngine
+
             engine = AIInsightsEngine()  # will use OPENAI_API_KEY if set else fallback
             batch_state = load_state(batch_id)
             context = {"metrics": {"...": ...}, "recent_batches": [batch_state]}  # minimal
             insight_text = engine.generate_daily_summary(batch_state.get("kpis", {}))
-            state['ai_insights'] = insight_text
+            state["ai_insights"] = insight_text
             save_state(batch_id, state)
-            publish_event(batch_id, "AI_INSIGHTS_GENERATED", {"insight_length": len(insight_text)})
-      except Exception as e:
+            publish_event(
+                batch_id,
+                "AI_INSIGHTS_GENERATED",
+                {"insight_length": len(insight_text)},
+            )
+        except Exception as e:
             logger.info("AI insights generation skipped or failed: %s", e)
 
     except Exception as exc:

@@ -5,7 +5,7 @@ Prometheus metrics router to expose /metrics and provide simple metric objects.
 """
 from __future__ import annotations
 from fastapi import APIRouter, Response
-from prometheus_client import Counter, REGISTRY, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST
 
 router = APIRouter()
 

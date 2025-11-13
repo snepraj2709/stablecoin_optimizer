@@ -1,25 +1,27 @@
 """
+ai_insights.py
+
 AI-powered insights for the Stablecoin Optimizer.
 
 Features:
 - Uses OpenAI if `OPENAI_API_KEY` is present and `openai` is importable.
-- Otherwise, falls back to local heuristic functions that are deterministic and safe for demos/tests.
+- Otherwise, falls back to deterministic heuristics.
+- Adds a tiny in-memory caching decorator (TTL) to cache dashboard calls for 5-10 minutes.
 - Exposes:
     - AIInsightsEngine (class) with the same public methods you provided.
     - generate_insights(input_obj, model=...) top-level function used by the dashboard.
-- All network/LLM calls are wrapped to avoid raising on missing config; exceptions are returned as explanatory strings.
-
-Usage:
-    from ai_insights import generate_insights, AIInsightsEngine
-    output = generate_insights({"metrics": ..., "recent_batches": [...]})
 """
-
 from __future__ import annotations
 import os
 import json
 import math
+import time
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
+from functools import wraps
+from copy import deepcopy
+# from api.metrics_registry import metrics_registry
 
 # Try to import OpenAI; if not available, we'll run heuristic fallbacks.
 try:
@@ -30,6 +32,7 @@ except Exception:
     OPENAI_AVAILABLE = False
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API") or None
+_metrics_cache = None
 
 # Small deterministic RNG for fallback recommendations (keeps outputs stable across runs)
 def _deterministic_hash(s: str) -> int:
@@ -38,6 +41,56 @@ def _deterministic_hash(s: str) -> int:
         h = (h ^ ord(ch)) * 16777619 & 0xFFFFFFFF
     return h
 
+# ----------------- Tiny in-memory TTL cache decorator -----------------
+def cache_result(ttl_seconds: int = 600):
+    """
+    Simple thread-safe in-memory cache decorator with TTL.
+    Attaches `.cache_store` dict and `.cache_hits` counter (dict) to the wrapped function
+    so unit tests or callers can inspect usage if needed.
+    """
+    def decorator(fn):
+        cache_store: Dict[str, Tuple[float, Any]] = {}
+        cache_lock = threading.Lock()
+        cache_hits = {"hits": 0}
+
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            # Build cache key from args/kwargs (JSON-serializable)
+            try:
+                key_obj = {"args": args, "kwargs": kwargs}
+                # we must convert non-serializable to str
+                key = json.dumps(key_obj, default=str, sort_keys=True)
+            except Exception:
+                # fallback simple key
+                key = str((args, tuple(sorted(kwargs.items()))))
+
+            now = time.time()
+            with cache_lock:
+                ent = cache_store.get(key)
+                if ent:
+                    ts, val = ent
+                    if now - ts < ttl_seconds:
+                        cache_hits["hits"] += 1
+                        # return deep copy to avoid accidental mutation by callers
+                        return deepcopy(val)
+                    else:
+                        # expired
+                        del cache_store[key]
+            # compute
+            result = fn(*args, **kwargs)
+            with cache_lock:
+                cache_store[key] = (now, deepcopy(result))
+            return result
+
+        # attach introspection helpers
+        wrapped.cache_store = cache_store  # type: ignore
+        wrapped.cache_hits = cache_hits    # type: ignore
+        wrapped.cache_lock = cache_lock    # type: ignore
+        wrapped.cache_ttl = ttl_seconds    # type: ignore
+        return wrapped
+    return decorator
+
+# ----------------- AIInsightsEngine (preserves your original methods) -----------------
 class AIInsightsEngine:
     """
     Wrapper engine for AI-powered insights. Uses OpenAI when available,
@@ -58,7 +111,7 @@ class AIInsightsEngine:
     def _call_openai_chat(self, messages: List[Dict[str, str]], temperature: float = 0.0, max_tokens: int = 400) -> str:
         """
         Safe wrapper for OpenAI ChatCompletion.
-        Raises only when openai is available but the call fails; otherwise returns an explanatory string.
+        Returns string result or explanatory message on failure.
         """
         if not self.use_openai:
             raise RuntimeError("OpenAI not configured; falling back to local heuristics.")
@@ -69,26 +122,19 @@ class AIInsightsEngine:
                 temperature=temperature,
                 max_tokens=max_tokens
             )
-            # robust extraction
             choices = resp.get("choices") if isinstance(resp, dict) else getattr(resp, "choices", None)
             if choices and len(choices) > 0:
-                # support both dict and object shapes
                 first = choices[0]
                 if isinstance(first, dict) and "message" in first:
                     return first["message"].get("content", "").strip()
                 else:
-                    # object shape
                     return getattr(first, "message", {}).get("content", "").strip()
             return ""
         except Exception as e:
-            # do not raise; return explanatory message so callers can show something useful
             return f"[OpenAI error: {type(e).__name__}] {str(e)}"
 
-    # ----------------- Public methods (your original API preserved) -----------------
+    # ----------------- Public methods -----------------
     def generate_daily_summary(self, data_dict: Dict) -> str:
-        """
-        Daily summary using LLM if available, else a deterministic heuristic text summary.
-        """
         if self.use_openai:
             prompt = f"""You are a treasury operations analyst. Generate a concise daily summary report based on the following transaction data.
 
@@ -126,7 +172,6 @@ Keep it concise (150-250 words) and actionable."""
             ]
             return self._call_openai_chat(messages, temperature=0.7, max_tokens=500)
         else:
-            # deterministic fallback
             total = data_dict.get("total_transactions", 0)
             vol = data_dict.get("total_volume", 0.0)
             avg_cost = data_dict.get("avg_cost_bps", 0.0)
@@ -137,22 +182,17 @@ Keep it concise (150-250 words) and actionable."""
             lines.append(f"Average cost was {avg_cost:.2f} BPS with success rate {success:.1f}%.")
             if failed:
                 lines.append(f"{failed} transactions failed — investigate failure cluster.")
-            # basic trend commentary
             vol_chg = data_dict.get("volume_change", 0)
             if vol_chg > 5:
                 lines.append(f"Volume up {vol_chg:.1f}% vs previous period — higher throughput.")
             elif vol_chg < -5:
                 lines.append(f"Volume down {vol_chg:.1f}% vs previous period — check traffic sources.")
-            # compliance
             if data_dict.get("compliance_rate", 100) < 95:
                 lines.append("Compliance rate below 95% — priority to remediate.")
             lines.append("Outlook: monitor cost and failed transactions; consider routing adjustments if costs remain elevated.")
             return " ".join(lines)
 
     def analyze_exceptions(self, exceptions_data: List[Dict]) -> str:
-        """
-        OpenAI if available, else structured heuristic recommendations.
-        """
         if self.use_openai:
             prompt = f"""You are a treasury operations expert. Analyze the following transaction exceptions and provide specific remediation suggestions.
 
@@ -172,7 +212,6 @@ Format your response with clear sections and actionable recommendations."""
             ]
             return self._call_openai_chat(messages, temperature=0.6, max_tokens=1000)
         else:
-            # heuristic: summarize exception types and produce canned remediation steps
             if not exceptions_data:
                 return "No exceptions detected."
             parts = []
@@ -182,7 +221,6 @@ Format your response with clear sections and actionable recommendations."""
                 sev = ex.get("severity", "Medium")
                 details = ex.get("details", "")
                 parts.append(f"Exception: {t} (count={cnt}, severity={sev}). {details}")
-                # remediation heuristics
                 if t.lower().startswith("failed"):
                     parts.append("Remediation: retry logic with exponential backoff; capture transfer logs and inspect venue failures.")
                 elif "compliance" in t.lower():
@@ -194,9 +232,6 @@ Format your response with clear sections and actionable recommendations."""
             return "\n\n".join(parts)
 
     def generate_optimization_recommendations(self, route_data: Dict) -> str:
-        """
-        OpenAI-backed recommendations or deterministic advice based on route metrics.
-        """
         if self.use_openai:
             prompt = f"""As a route optimization specialist, analyze the following routing data and provide actionable recommendations.
 
@@ -217,12 +252,10 @@ Be specific and quantify potential improvements where possible."""
             ]
             return self._call_openai_chat(messages, temperature=0.6, max_tokens=800)
         else:
-            # simple heuristic recommendations built from top_routes
             routes = route_data.get("top_routes", []) or []
             recs = []
             if not routes:
                 return "No route data available to recommend optimization."
-            # pick top 3 worst-cost routes by avg_cost_bps
             sorted_routes = sorted(routes, key=lambda r: r.get("avg_cost_bps", 0), reverse=True)
             for i, r in enumerate(sorted_routes[:3]):
                 recs.append(f"{i+1}. Route {r.get('route')}: avg cost {r.get('avg_cost_bps', 0):.2f} BPS, volume {r.get('volume',0)}. Suggest: evaluate alternative venues, cap slippage, and rebalance liquidity.")
@@ -230,9 +263,6 @@ Be specific and quantify potential improvements where possible."""
             return "\n".join(recs)
 
     def analyze_cost_anomalies(self, anomaly_data: List[Dict]) -> str:
-        """
-        OpenAI-backed analysis or heuristic reasons for anomalies.
-        """
         if self.use_openai:
             prompt = f"""Analyze the following cost anomalies in stablecoin transactions and explain potential causes.
 
@@ -263,9 +293,6 @@ Provide:
             return "Potential reasons:\n" + "\n".join(reasons)
 
     def generate_executive_insights(self, summary_data: Dict) -> str:
-        """
-        OpenAI-backed or short executive bullets.
-        """
         if self.use_openai:
             prompt = f"""As a CFO advisor, provide executive-level insights based on this treasury data.
 
@@ -296,9 +323,6 @@ Keep it strategic and suitable for C-level audience (150-200 words)."""
             return "\n".join(top)
 
     def compare_periods(self, current_data: Dict, previous_data: Dict) -> str:
-        """
-        Compare two periods. If OpenAI is available, produce narrative; otherwise produce a short list of deltas.
-        """
         if self.use_openai:
             prompt = f"""Compare these two periods and explain significant changes.
 Current Period:
@@ -334,29 +358,65 @@ Analyze:
                 return "No comparable metrics found between periods."
             return "\n".join(out)
 
-    # ----------------- Heuristic utilities for dashboard generate_insights -----------------
+# ----------------- Heuristic utilities for dashboard generate_insights -----------------
 def _heuristic_summarize_metrics(metrics: Dict[str, Any], recent_batches: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Build a minimal structured summary (deterministic) used by fallback generate_insights.
+
+    Prefer numeric metrics passed in via `metrics` (from dashboard / tests).
+    If `metrics` is empty or missing keys, fall back to defaults (do not import registry by default).
     """
+    # safe defaults
+    default_batches_started = 0
+    default_batches_in_progress = 0
+    default_avg_processing_seconds = 0.0
+
+    # Prefer values provided in the `metrics` dict (which Tests pass in).
+    try:
+        bs = metrics.get("batches_started_total", None) if isinstance(metrics, dict) else None
+        bip = metrics.get("batches_in_progress", None) if isinstance(metrics, dict) else None
+        avg = metrics.get("avg_processing_seconds", None) if isinstance(metrics, dict) else None
+    except Exception:
+        bs = bip = avg = None
+
+    # If any are missing, fall back to defaults (avoid importing metric objects)
+    try:
+        batches_started_total = int(bs) if bs is not None else default_batches_started
+    except Exception:
+        batches_started_total = default_batches_started
+
+    try:
+        batches_in_progress = int(bip) if bip is not None else default_batches_in_progress
+    except Exception:
+        batches_in_progress = default_batches_in_progress
+
+    try:
+        avg_processing_seconds = float(avg) if avg is not None else default_avg_processing_seconds
+    except Exception:
+        avg_processing_seconds = default_avg_processing_seconds
+
     summary = {}
-    summary["batches_started_total"] = int(metrics.get("batches_started_total", 0))
-    summary["batches_in_progress"] = int(metrics.get("batches_in_progress", 0))
-    summary["avg_processing_seconds"] = float(metrics.get("avg_processing_seconds", 0) or 0.0)
+    summary["batches_started_total"] = batches_started_total
+    summary["batches_in_progress"] = batches_in_progress
+    summary["avg_processing_seconds"] = avg_processing_seconds
+
     # detect failures in recent batches
     failures = [b for b in recent_batches if b.get("status") == "FAILED"]
     summary["recent_failures"] = len(failures)
-    # cost eyeball from kpis if present
+
+    # gather durations from per-batch kpis (if present)
     kpis = [b.get("kpis", {}) for b in recent_batches]
     durations = [k.get("duration_seconds", 0) for k in kpis if isinstance(k, dict) and "duration_seconds" in k]
-    summary["median_duration"] = float(sorted(durations)[len(durations)//2]) if durations else summary["avg_processing_seconds"]
+    if durations:
+        # median-ish
+        durations_sorted = sorted(durations)
+        summary["median_duration"] = float(durations_sorted[len(durations_sorted)//2])
+    else:
+        summary["median_duration"] = summary["avg_processing_seconds"]
+
     return summary
 
 def _heuristic_generate_insights_obj(input_obj: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Deterministic fallback generator that returns a JSON-serializable dict:
-    { summary: str, anomalies: [...], recommendations: [...] }
-    """
     metrics = input_obj.get("metrics", {}) or {}
     recent_batches = input_obj.get("recent_batches", []) or []
 
@@ -370,21 +430,19 @@ def _heuristic_generate_insights_obj(input_obj: Dict[str, Any]) -> Dict[str, Any
         summary_lines.append("No recent failures detected.")
 
     anomalies = []
-    if summary_struct["batches_in_progress"] > max(10, 2):  # deterministic threshold
+    if summary_struct["batches_in_progress"] > max(10, 2):
         anomalies.append({"severity": "MEDIUM", "description": "High concurrency: many batches in progress."})
     if summary_struct["median_duration"] > 5.0:
         anomalies.append({"severity": "MEDIUM", "description": f"Slower processing: median duration {summary_struct['median_duration']:.2f}s."})
     if summary_struct["recent_failures"] > 0:
         anomalies.append({"severity": "HIGH", "description": f"{summary_struct['recent_failures']} failed batches in recent history."})
 
-    # Simple deterministic recommendations based on hash of counts (keeps stable)
     seed = _deterministic_hash(str(summary_struct["batches_started_total"]))
     recs = []
     if summary_struct["recent_failures"] > 0:
         recs.append({"asset_from": "N/A", "asset_to": "N/A", "amount": 0, "rationale": "Investigate failure root causes; retry failed transfers."})
     if summary_struct["median_duration"] > 5.0:
         recs.append({"asset_from": "N/A", "asset_to": "N/A", "amount": 0, "rationale": "Consider scaling workers or reducing per-transfer compute."})
-    # always include a lightweight operational recommendation
     recs.append({"asset_from": "USDC", "asset_to": "USDC", "amount": 0, "rationale": "No rebalancing suggested; review routing policies regularly."})
 
     return {
@@ -394,6 +452,7 @@ def _heuristic_generate_insights_obj(input_obj: Dict[str, Any]) -> Dict[str, Any
     }
 
 # ----------------- Top-level helper used by dashboard -----------------
+@cache_result(ttl_seconds=600)  # default cache TTL 10 minutes
 def generate_insights(input_obj: Dict[str, Any], model: str = "gpt-4o-mini") -> Dict[str, Any]:
     """
     Top-level helper used by the dashboard.
@@ -405,9 +464,7 @@ def generate_insights(input_obj: Dict[str, Any], model: str = "gpt-4o-mini") -> 
     Returns:
         dict with keys: summary (str), anomalies (list), recommendations (list)
     """
-    # If an API key is present and OpenAI available, delegate to the LLM with a controlled prompt.
     if OPENAI_AVAILABLE and OPENAI_API_KEY:
-        # build a safe succinct prompt focusing on structure (JSON output)
         PROMPT_SUMMARY = """
 You are an AI assistant for a payments treasury system.
 Input: a JSON object with KPI timeseries and recent abnormal transfers.
@@ -423,7 +480,6 @@ Here is the input:
         messages = [{"role": "system", "content": "You are an assistant that outputs JSON with keys: summary, anomalies, recommendations."},
                     {"role": "user", "content": prompt}]
         try:
-            # call OpenAI safely (engine wrapper)
             if OPENAI_AVAILABLE:
                 openai.api_key = OPENAI_API_KEY  # type: ignore
                 resp = openai.ChatCompletion.create( # type: ignore
@@ -437,7 +493,6 @@ Here is the input:
                     parsed = json.loads(text)
                     return parsed
                 except Exception:
-                    # attempt to extract JSON block from text
                     import re
                     m = re.search(r"(\{[\s\S]*\})", text)
                     if m:
@@ -445,16 +500,12 @@ Here is the input:
                             return json.loads(m.group(1))
                         except Exception:
                             pass
-                    # fallback to wrapping raw text
                     return {"summary": text, "anomalies": [], "recommendations": []}
             else:
-                # OpenAI library not available despite key: fall back to heuristics
                 return _heuristic_generate_insights_obj(input_obj)
         except Exception as e:
-            # on any exception, revert to heuristic generator but include the error in summary
             base = _heuristic_generate_insights_obj(input_obj)
             base["summary"] = f"[AI error: {type(e).__name__}] {str(e)}\n\n" + base["summary"]
             return base
     else:
-        # fallback mode
         return _heuristic_generate_insights_obj(input_obj)
