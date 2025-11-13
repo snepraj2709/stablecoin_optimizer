@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import os
+from pathlib import Path
 
 # Import our custom modules
 from metrics_calculator import MetricsCalculator, get_comparison_metrics
@@ -36,10 +37,31 @@ st.markdown("""
 
 st.sidebar.title("📁 Configuration")
 
+# Auto-detect latest batch directory under ./config if present
+def _latest_batch_dir(base: str = "./config") -> str:
+    try:
+        base_path = Path(base)
+        if not base_path.exists():
+            return base
+        # find subdirs with optimization_results.csv
+        candidates = []
+        for p in base_path.iterdir():
+            if p.is_dir():
+                if (p / "optimization_results.csv").exists() or (p / "optimization_results_lp.csv").exists() or (p / "optimization_results_mip.csv").exists():
+                    candidates.append((p.stat().st_mtime, str(p)))
+        if not candidates:
+            return base
+        candidates.sort(reverse=True)
+        return candidates[0][1]
+    except Exception:
+        return base
+
+_default_dir = _latest_batch_dir("./config")
+
 # Data directory
 data_dir = st.sidebar.text_input(
     "Data Directory",
-    value="./config",
+    value=_default_dir,
     help="Path to directory with CSV files"
 )
 

@@ -12,6 +12,7 @@ CONFIG_DIR = os.path.join(BASE_DIR, "config")
 # Configuration
 INPUT_CSV = os.path.join(CONFIG_DIR, "normalized_transactions.csv")
 OUTPUT_CSV = os.path.join(CONFIG_DIR, "optimization_results.csv")
+OUTPUT_CSV_MIP = os.path.join(CONFIG_DIR, "optimization_results_mip.csv")
 
 def mip_selected_to_optimization_results(mip_result: Dict[str, Any], transactions, optimizer: UnifiedOptimizer):
     """
@@ -22,7 +23,7 @@ def mip_selected_to_optimization_results(mip_result: Dict[str, Any], transaction
     using the candidate route features (est_cost_bps etc). It's conservative — it
     mirrors the fields your exporter expects.
     """
-    from your_package.optimizer import RouteSegment, OptimizationResult  # adjust as needed
+    from stablecoin_router.optimizer import RouteSegment, OptimizationResult
     tx_map = {tx.transfer_id: tx for tx in transactions}
     results = []
 
