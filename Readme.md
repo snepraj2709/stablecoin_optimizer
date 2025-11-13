@@ -109,34 +109,34 @@ flowchart TD
 
     %% === 2. NORMALIZER ===
     subgraph NORM["2. NORMALIZER"]
-        N[Normalizer: Transaction dataclass / clean fields / types]
+        N["Normalizer: Transaction dataclass / clean fields / types"]
     end
 
     %% === 3. ADAPTER ===
     subgraph ADAPT["3. ADAPTER"]
-        AD[Adapter: enrich with candidate routes / weights / pre-checks]
+        AD["Adapter: enrich with candidate routes / weights / pre-checks"]
     end
 
     %% === 4. OPTIMIZER ===
     subgraph OPT["4. OPTIMIZER"]
-        O[Optimizer: MIP solver (α·cost + β·time + γ·risk)]
-        O2[Hard constraints: (max cost, max time, max slippage)]
-        O3[Context flags (cross-border, high-value, fast settlement)]
+        O["Optimizer: MIP solver (α·cost + β·time + γ·risk)"]
+        O2["Hard constraints: (max cost, max time, max slippage)"]
+        O3["Context flags: (cross-border, high-value, fast settlement)"]
     end
 
     %% === 5. TREASURY ANALYTICS ===
     subgraph ANALYTICS["5. TREASURY ANALYTICS"]
-        AN[KPI timeseries / idle capital / FX exposure]
+        AN["KPI timeseries / idle capital / FX exposure"]
     end
 
     %% === 6. AI INSIGHTS ===
     subgraph AI["6. AI INSIGHTS"]
-        AIo[Summaries / anomalies / recommendations]
+        AIo["Summaries / anomalies / recommendations"]
     end
 
     %% === 7. DASHBOARD ===
     subgraph DASH["7. DASHBOARD"]
-        D[Streamlit / React UI]
+        D["Streamlit / React UI"]
     end
 
     %% === Flow connections ===
