@@ -5,7 +5,7 @@ Prometheus metrics router to expose /metrics and provide simple metric objects.
 """
 from __future__ import annotations
 from fastapi import APIRouter, Response
-from prometheus_client import CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 router = APIRouter()
 
@@ -16,4 +16,4 @@ async def metrics():
     
     Returns metrics in Prometheus text format for scraping.
     """
-    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
