@@ -235,9 +235,7 @@ async def create_batch(request: BatchRequest):
     # Try RQ enqueue, fallback to background thread
     elif job_queue is not None:
         try:
-            job_queue.enqueue(
-              process_batch_job, batch_id, request.n, request.use_mip, request.mip_time_limit, request.top_k, timeout=1800
-            )
+            job_queue.enqueue("api.jobs.process_batch_job", batch_id, n, use_mip, mip_time_limit, top_k, timeout=1800)
             logger.info(f"Created batch {batch_id} (RQ mode)")
         except Exception as e:
             logger.warning(f"RQ enqueue failed: {e}, using background thread")
