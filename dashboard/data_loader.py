@@ -38,9 +38,15 @@ class DataLoader:
     def load_optimized_data(_self) -> Optional[pd.DataFrame]:
         """Load optimization results"""
         try:
-            if os.path.exists(_self.optimized_file):
-                df = pd.read_csv(_self.optimized_file)
-                return _self._preprocess_dataframe(df)
+            candidate_files = [
+                _self.optimized_file,
+                os.path.join(_self.data_dir, "optimization_results_lp.csv"),
+                os.path.join(_self.data_dir, "optimization_results_mip.csv"),
+            ]
+            for f in candidate_files:
+                if os.path.exists(f):
+                    df = pd.read_csv(f)
+                    return _self._preprocess_dataframe(df)
             return None
         except Exception as e:
             st.error(f"Error loading optimized data: {str(e)}")
