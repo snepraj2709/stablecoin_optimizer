@@ -279,7 +279,7 @@ async def get_batch_status(batch_id: str):
     
     return BatchStatus(
         batch_id=batch_data["batch_id"],
-        status=BatchStage(batch_data["status"]),
+        status=BatchStage(batch_data["status"].lower()),
         kpis=KPISnapshot(**batch_data["kpis"]),
         created_at=batch_data["created_at"],
         updated_at=batch_data["updated_at"],
@@ -305,7 +305,7 @@ async def get_batch_results(batch_id: str):
     
     return BatchResultsResponse(
         batch_id=batch_id,
-        status=BatchStage(batch_data["status"]),
+        status=BatchStage(batch_data["status"].lower()),
         results=[OptimizationResultResponse(**r) for r in results],
         kpis=KPISnapshot(**batch_data["kpis"])
     )
