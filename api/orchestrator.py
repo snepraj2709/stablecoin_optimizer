@@ -29,11 +29,24 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Stablecoin Optimizer Orchestrator", version="1.0.0")
 
+# Include metrics router
+from api.metrics import router as metrics_router
+app.include_router(metrics_router)
+
 # Redis setup
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-job_queue = Queue('optimization', connection=redis_conn)
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+
+try:
+    redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    if not TEST_MODE:
+        redis_conn.ping()  # Test connection
+    job_queue = Queue('optimization', connection=redis_conn)
+except Exception:
+    logger.warning("Redis not available, will use fallback mode")
+    redis_conn = None
+    job_queue = None
 
 # ============================================================================
 # MODELS
@@ -108,7 +121,8 @@ class BatchResultsResponse(BaseModel):
 # ============================================================================
 
 def create_batch_state(batch_id: str, n: int, use_mip: bool) -> Dict[str, Any]:
-    """Create batch state in Redis"""
+    """Create batch state in Redis or memory"""
+    from api.jobs import update_batch_state as jobs_update_batch_state
     batch_data = {
         "batch_id": batch_id,
         "status": BatchStage.PENDING.value,
@@ -129,15 +143,24 @@ def create_batch_state(batch_id: str, n: int, use_mip: bool) -> Dict[str, Any]:
         }
     }
     
-    redis_conn.set(f"batch:{batch_id}", json.dumps(batch_data))
-    redis_conn.expire(f"batch:{batch_id}", 86400)
+    if redis_conn is not None:
+        redis_conn.set(f"batch:{batch_id}:state", json.dumps(batch_data))
+        redis_conn.expire(f"batch:{batch_id}:state", 86400)
+    else:
+        # Use jobs module's memory fallback
+        jobs_update_batch_state(batch_id, batch_data, None)
     return batch_data
 
 
 def get_batch_state(batch_id: str) -> Optional[Dict[str, Any]]:
-    """Get batch state from Redis"""
-    data = redis_conn.get(f"batch:{batch_id}")
-    return json.loads(data) if data else None
+    """Get batch state from Redis or memory"""
+    if redis_conn is not None:
+        data = redis_conn.get(f"batch:{batch_id}:state")
+        return json.loads(data) if data else None
+    else:
+        # Use jobs module's memory fallback
+        from api.jobs import get_batch_state as jobs_get_batch_state
+        return jobs_get_batch_state(batch_id, None)
 
 
 def update_batch_state(batch_id: str, updates: Dict[str, Any]) -> None:
@@ -148,7 +171,12 @@ def update_batch_state(batch_id: str, updates: Dict[str, Any]) -> None:
     
     batch_data.update(updates)
     batch_data["updated_at"] = datetime.utcnow().isoformat()
-    redis_conn.set(f"batch:{batch_id}", json.dumps(batch_data))
+    
+    if redis_conn is not None:
+        redis_conn.set(f"batch:{batch_id}:state", json.dumps(batch_data))
+    else:
+        from api.jobs import update_batch_state as jobs_update_batch_state
+        jobs_update_batch_state(batch_id, batch_data, None)
 
 
 def update_stage(batch_id: str, stage: BatchStage) -> None:
@@ -164,14 +192,23 @@ def update_stage(batch_id: str, stage: BatchStage) -> None:
 
 def store_results(batch_id: str, results: List[Dict[str, Any]]) -> None:
     """Store results"""
-    redis_conn.set(f"batch:{batch_id}:results", json.dumps(results))
-    redis_conn.expire(f"batch:{batch_id}:results", 86400)
+    if redis_conn is not None:
+        redis_conn.set(f"batch:{batch_id}:results", json.dumps(results))
+        redis_conn.expire(f"batch:{batch_id}:results", 86400)
+    else:
+        from api.jobs import store_results as jobs_store_results
+        jobs_store_results(batch_id, results, None)
 
 
 def get_results(batch_id: str) -> Optional[List[Dict[str, Any]]]:
     """Get results"""
-    data = redis_conn.get(f"batch:{batch_id}:results")
-    return json.loads(data) if data else None
+    if redis_conn is not None:
+        data = redis_conn.get(f"batch:{batch_id}:results")
+        return json.loads(data) if data else None
+    else:
+        from api.jobs import _MEMORY_STORE
+        data = _MEMORY_STORE.get(f"batch:{batch_id}:results")
+        return data
 
 
 # ============================================================================
@@ -188,13 +225,41 @@ async def create_batch(request: BatchRequest):
     # Import from jobs module
     from api.jobs import process_batch_job
     
-    job_queue.enqueue(
-        process_batch_job,
-        batch_id, request.n, request.use_mip, request.mip_time_limit, request.top_k,
-        job_timeout='30m'
-    )
-    
-    logger.info(f"Created batch {batch_id}")
+    # Test mode: process synchronously for reliable testing
+    if TEST_MODE:
+        logger.info(f"Created batch {batch_id} (test mode - synchronous)")
+        try:
+            process_batch_job(batch_id, request.n, request.use_mip, request.mip_time_limit, request.top_k)
+        except Exception as e:
+            logger.error(f"Batch processing failed: {e}")
+    # Try RQ enqueue, fallback to background thread
+    elif job_queue is not None:
+        try:
+            job_queue.enqueue(
+              process_batch_job, batch_id, request.n, request.use_mip, request.mip_time_limit, request.top_k, timeout=1800
+            )
+            logger.info(f"Created batch {batch_id} (RQ mode)")
+        except Exception as e:
+            logger.warning(f"RQ enqueue failed: {e}, using background thread")
+            # Fallback to background thread
+            import threading
+            thread = threading.Thread(
+                target=process_batch_job,
+                args=(batch_id, request.n, request.use_mip, request.mip_time_limit, request.top_k),
+                daemon=True
+            )
+            thread.start()
+            logger.info(f"Created batch {batch_id} (thread mode)")
+    else:
+        # No Redis, use background thread
+        import threading
+        thread = threading.Thread(
+            target=process_batch_job,
+            args=(batch_id, request.n, request.use_mip, request.mip_time_limit, request.top_k),
+            daemon=True
+        )
+        thread.start()
+        logger.info(f"Created batch {batch_id} (thread mode)")
     
     return BatchResponse(
         batch_id=batch_id,
@@ -263,7 +328,8 @@ async def stream_batch_events(batch_id: str):
             "stage": batch_data["status"],
             "timestamp": batch_data["updated_at"]
         }
-        yield f"data: {json.dumps(init_event)}\n\n".encode("utf-8")
+        # Yield strings (FastAPI will handle encoding). This avoids bytes/str mixups in some SSE clients.
+        yield f"data: {json.dumps(init_event)}\n\n"
 
         try:
             while True:
@@ -274,7 +340,7 @@ async def stream_batch_events(batch_id: str):
                         msg_data = msg_data.decode("utf-8")
 
                     # Send Redis-published event downstream
-                    yield f"data: {msg_data}\n\n".encode("utf-8")
+                    yield f"data: {msg_data}\n\n"
 
                 # Check if batch finished
                 current_batch = get_batch_state(batch_id)
@@ -287,7 +353,7 @@ async def stream_batch_events(batch_id: str):
                         "timestamp": current_batch["updated_at"],
                         "final": True
                     }
-                    yield f"data: {json.dumps(final_event)}\n\n".encode("utf-8")
+                    yield f"data: {json.dumps(final_event)}\n\n"
                     break
 
                 await asyncio.sleep(0.1)
