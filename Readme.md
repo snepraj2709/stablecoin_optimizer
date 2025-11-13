@@ -98,44 +98,56 @@ Settlement success rate: 92.0%
 
 
 ### Data flow architecture
+```mermaid
 flowchart TD
-  subgraph INGEST["1. RAW INPUTS"]
-    A1[Stablecoin API] --> N
-    A2[CSV / Webhook / ERP / Synthetic] --> N
-  end
 
-  subgraph NORM["2. NORMALIZER"]
-    N[Normalizer: Transaction dataclass / clean fields / types]
-  end
+    %% === 1. RAW INPUTS ===
+    subgraph INGEST["1. RAW INPUTS"]
+        A1[Stablecoin API] --> N
+        A2[CSV / Webhook / ERP / Synthetic] --> N
+    end
 
-  subgraph ADAPT["3. ADAPTER"]
-    AD[Adapter: enrich with candidate routes / weights / pre-checks]
-  end
+    %% === 2. NORMALIZER ===
+    subgraph NORM["2. NORMALIZER"]
+        N[Normalizer: Transaction dataclass / clean fields / types]
+    end
 
-  subgraph OPT["4. OPTIMIZER"]
-    O[Optimizer: MIP solver (α·cost + β·time + γ·risk)]
-    O[Hard constraints: (max cost, max time, max slippage)]
-    O[Context flags (cross-border, high-value, fast settlement)]
-  end
+    %% === 3. ADAPTER ===
+    subgraph ADAPT["3. ADAPTER"]
+        AD[Adapter: enrich with candidate routes / weights / pre-checks]
+    end
 
-  subgraph ANALYTICS["5. TREASURY ANALYTICS"]
-    AN[KPI timeseries / idle capital / FX exposure]
-  end
+    %% === 4. OPTIMIZER ===
+    subgraph OPT["4. OPTIMIZER"]
+        O[Optimizer: MIP solver (α·cost + β·time + γ·risk)]
+        O2[Hard constraints: (max cost, max time, max slippage)]
+        O3[Context flags (cross-border, high-value, fast settlement)]
+    end
 
-  subgraph AI["6. AI INSIGHTS"]
-    AIo[Summaries / anomalies / recommendations]
-  end
+    %% === 5. TREASURY ANALYTICS ===
+    subgraph ANALYTICS["5. TREASURY ANALYTICS"]
+        AN[KPI timeseries / idle capital / FX exposure]
+    end
 
-  subgraph DASH["7. DASHBOARD"]
-    D[Streamlit / React UI]
-  end
+    %% === 6. AI INSIGHTS ===
+    subgraph AI["6. AI INSIGHTS"]
+        AIo[Summaries / anomalies / recommendations]
+    end
 
-  %% flow
-  N --> AD
-  AD --> O
-  O --> AN
-  AN --> AIo
-  AIo --> D
+    %% === 7. DASHBOARD ===
+    subgraph DASH["7. DASHBOARD"]
+        D[Streamlit / React UI]
+    end
+
+    %% === Flow connections ===
+    A1 --> N
+    A2 --> N
+    N --> AD
+    AD --> O
+    O --> AN
+    AN --> AIo
+    AIo --> D
+```
 
 
 ### 8. Test the Optimizer

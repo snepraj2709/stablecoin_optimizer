@@ -14,6 +14,12 @@ from pathlib import Path
 import requests
 import re
 import json
+import sys
+
+# Add project root to the Python path
+ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
+sys.path.append(ROOT_DIR)
+from ai.ai_integration import get_transaction_insights
 
 # Import our custom modules
 from metrics_calculator import MetricsCalculator, get_comparison_metrics
@@ -582,6 +588,43 @@ with tabs[seg_tab_idx]:
         st.markdown("### 👥 By User Tier")
         metrics_by_tier = calc.get_metrics_by_user_tier()
         st.dataframe(metrics_by_tier, use_container_width=True)
+# Run insights
+if st.button("🔍 Generate AI Insights"):
+    with st.spinner("Analyzing transactions..."):
+        try:
+            insights = get_transaction_insights()
+            st.success("✅ Insights generated successfully!")
+
+            # Layout columns
+            col1, col2, col3 = st.columns(3)
+
+            # Summary
+            with col1:
+                st.markdown("### 📋 Summary")
+                st.write(insights.get("summary", "No summary available."))
+
+            # Anomalies
+            with col2:
+                st.markdown("### ⚠️ Anomalies")
+                anomalies = insights.get("anomalies", [])
+                if anomalies:
+                    for a in anomalies:
+                        st.markdown(f"- {a}")
+                else:
+                    st.write("No anomalies detected.")
+
+            # Recommendations
+            with col3:
+                st.markdown("### 💡 Recommendations")
+                recs = insights.get("recommendations", [])
+                if recs:
+                    for r in recs:
+                        st.markdown(f"- {r}")
+                else:
+                    st.write("No recommendations provided.")
+
+        except Exception as e:
+            st.error(f"Error generating insights: {e}")
 
 # Footer
 st.markdown("---")
