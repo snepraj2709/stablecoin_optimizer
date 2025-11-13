@@ -2,8 +2,8 @@
 Stablecoin Route Optimization Dashboard - Modular Version
 
 Clean, modular dashboard using actual data structure
+Integrates Prometheus metrics (from API `/metrics`) into the existing layout.
 """
-
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -11,6 +11,9 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import os
 from pathlib import Path
+import requests
+import re
+import json
 
 # Import our custom modules
 from metrics_calculator import MetricsCalculator, get_comparison_metrics
@@ -33,7 +36,64 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== SIDEBAR ====================
+# ---------------- PROMETHEUS METRICS HELPERS ----------------
+import re
+import requests
+import os
+
+API_BASE = os.environ.get("API_BASE", "http://localhost:8000")
+METRICS_URL = f"{API_BASE}/metrics"
+
+_METRIC_RE = re.compile(r"^([a-zA-Z0-9_:]+)(?:\{[^}]*\})?\s+([0-9.eE+\-]+)$")
+
+@st.cache_data(show_spinner=False, ttl=60)
+def fetch_metrics_text(url: str = METRICS_URL, timeout: int = 20) -> str | None:
+    """Fetch /metrics text from Prometheus-compatible endpoint."""
+    try:
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
+            return r.text
+    except Exception as e:
+        st.warning(f"⚠️ Failed to fetch metrics: {e}")
+    return None
+
+
+def parse_prometheus_text(text: str) -> dict:
+    """
+    Minimal parser to extract key Prometheus metrics we care about.
+    """
+    metrics = {}
+    if not text:
+        return metrics
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _METRIC_RE.match(line)
+        if not m:
+            continue
+        name, val = m.groups()
+        try:
+            metrics[name] = float(val)
+        except ValueError:
+            continue
+
+    out = {}
+    if "batches_started_total" in metrics:
+        out["batches_started_total"] = int(metrics["batches_started_total"])
+    if "batches_in_progress" in metrics:
+        out["batches_in_progress"] = int(metrics["batches_in_progress"])
+
+    sum_k = "batch_processing_time_seconds_sum"
+    cnt_k = "batch_processing_time_seconds_count"
+    if sum_k in metrics and cnt_k in metrics and metrics[cnt_k] > 0:
+        out["avg_processing_seconds"] = metrics[sum_k] / metrics[cnt_k]
+        out["processed_batches_count"] = int(metrics[cnt_k])
+
+    return out
+
+# ----------------=== SIDEBAR ===----------------
 
 st.sidebar.title("📁 Configuration")
 
@@ -64,6 +124,30 @@ data_dir = st.sidebar.text_input(
     value=_default_dir,
     help="Path to directory with CSV files"
 )
+
+# Prometheus metrics quick panel in sidebar
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📈 Prometheus Metrics")
+metrics_text = fetch_metrics_text()
+if metrics_text:
+    metrics_text = fetch_metrics_text()
+
+    # call parser only when text exists, otherwise empty dict
+    prom_metrics = parse_prometheus_text(metrics_text) if metrics_text else {}
+    print(f"prom_metrics: {prom_metrics}")
+
+    if prom_metrics:
+        st.sidebar.metric("Batches started", prom_metrics.get("batches_started_total", 0))
+        st.sidebar.metric("Batches in progress", prom_metrics.get("batches_in_progress", 0))
+        avg = prom_metrics.get("avg_processing_seconds")
+        st.sidebar.metric("Avg processing (s)", f"{avg:.2f}" if avg else "—")
+        # raw small snippet
+        snippet = "\n".join(metrics_text.splitlines()[:20])
+        st.sidebar.code(snippet)
+    else:
+        st.sidebar.info("Prometheus metrics not available.")
+else:
+    st.sidebar.info("Prometheus metrics not available. Ensure API is running.")
 
 # Initialize data loader
 loader = DataLoader(data_dir)
@@ -157,7 +241,7 @@ if baseline_df is not None:
         baseline_df,
         business_types=selected_business_types if 'All' not in selected_business_types else None,
         regions=selected_regions if 'All' not in selected_regions else None,
-        urgency_levels=selected_urgency if 'All' not in selected_urgency else None,
+        urgency_levels=selected_selected_urgency if 'All' not in selected_urgency else None,
         user_tiers=selected_tiers if 'All' not in selected_tiers else None
     )
 else:
@@ -172,6 +256,22 @@ st.markdown("---")
 # Create calculator
 calc = MetricsCalculator(filtered_df, filtered_baseline)
 metrics = calc.get_summary_metrics()
+
+# Show a compact metrics row that includes Prometheus-derived numbers if available
+col_prom1, col_prom2, col_prom3, col_prom4 = st.columns(4)
+with col_prom1:
+    st.metric("Total Volume", f"${metrics['total_volume_usd']/1e6:.2f}M")
+with col_prom2:
+    st.metric("Avg Cost", f"{metrics['avg_cost_bps']:.2f} BPS")
+with col_prom3:
+    st.metric("Success Rate", f"{metrics['success_rate_pct']:.1f}%")
+with col_prom4:
+    # show batches in progress from Prometheus if available to correlate dashboard with backend
+    bip = prom_metrics.get("batches_in_progress")
+    if bip is not None:
+        st.metric("Batches In Progress (backend)", f"{bip}")
+    else:
+        st.metric("Transactions", f"{metrics['total_transactions']:,}")
 
 # ==================== TABS ====================
 
@@ -211,7 +311,6 @@ if analysis_mode == "Optimization Comparison" and filtered_baseline is not None:
             base = metrics_baseline.get('avg_cost_bps', 0)
             pct = (cost_improvement / base * 100) if base else 0
             st.metric("Cost Reduction", f"{cost_improvement:.1f} BPS", f"{pct:.1f}%")
-
         
         with col2:
             savings = metrics['total_savings_usd']
