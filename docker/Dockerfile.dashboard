@@ -1,25 +1,17 @@
-# Dockerfile.dashboard
 FROM python:3.11-slim
-
-ARG APP_USER=appuser
-ARG APP_UID=1001
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl wget ca-certificates git \
- && rm -rf /var/lib/apt/lists/* \
- && groupadd -g ${APP_UID} ${APP_USER} \
- && useradd -m -u ${APP_UID} -g ${APP_UID} ${APP_USER}
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
-RUN if [ -f /app/requirements.txt ]; then pip install --no-cache-dir -r /app/requirements.txt; else pip install --no-cache-dir streamlit; fi
+COPY requirements.txt .
 
-COPY . /app
-RUN chown -R ${APP_USER}:${APP_USER} /app
-USER ${APP_USER}
+# make pip modern
+RUN pip install --upgrade pip
 
-ENV PYTHONUNBUFFERED=1
+# install deps (no compilers needed because 3.11 has wheels)
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
 EXPOSE 8501
 
-# Render will supply $PORT, so we leave CMD as fallback.
 CMD ["sh", "-c", "streamlit run dashboard/dashboard.py --server.port ${PORT:-8501} --server.address 0.0.0.0"]
