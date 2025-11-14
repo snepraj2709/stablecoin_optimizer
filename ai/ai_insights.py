@@ -21,17 +21,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from functools import wraps
 from copy import deepcopy
+from dotenv import load_dotenv
+load_dotenv()
+from openai import OpenAI
+
 # from api.metrics_registry import metrics_registry
 
-# Try to import OpenAI; if not available, we'll run heuristic fallbacks.
-try:
-    import openai  # type: ignore
-    OPENAI_AVAILABLE = True
-except Exception:
-    openai = None  # type: ignore
-    OPENAI_AVAILABLE = False
-
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API") or None
+OPENAI_AVAILABLE = True
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 _metrics_cache = None
 
 # Small deterministic RNG for fallback recommendations (keeps outputs stable across runs)
@@ -105,7 +102,7 @@ class AIInsightsEngine:
         self.api_key = api_key or OPENAI_API_KEY
         self.use_openai = OPENAI_AVAILABLE and bool(self.api_key)
         if self.use_openai:
-            openai.api_key = self.api_key  # type: ignore
+            self.client = OpenAI(api_key=self.api_key) # type: ignore
 
     # ----------------- Helpers -----------------
     def _call_openai_chat(self, messages: List[Dict[str, str]], temperature: float = 0.0, max_tokens: int = 400) -> str:
@@ -116,20 +113,13 @@ class AIInsightsEngine:
         if not self.use_openai:
             raise RuntimeError("OpenAI not configured; falling back to local heuristics.")
         try:
-            resp = openai.ChatCompletion.create(  # type: ignore
+            resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens
             )
-            choices = resp.get("choices") if isinstance(resp, dict) else getattr(resp, "choices", None)
-            if choices and len(choices) > 0:
-                first = choices[0]
-                if isinstance(first, dict) and "message" in first:
-                    return first["message"].get("content", "").strip()
-                else:
-                    return getattr(first, "message", {}).get("content", "").strip()
-            return ""
+            return resp.choices[0].message["content"].strip()
         except Exception as e:
             return f"[OpenAI error: {type(e).__name__}] {str(e)}"
 
@@ -454,16 +444,6 @@ def _heuristic_generate_insights_obj(input_obj: Dict[str, Any]) -> Dict[str, Any
 # ----------------- Top-level helper used by dashboard -----------------
 @cache_result(ttl_seconds=600)  # default cache TTL 10 minutes
 def generate_insights(input_obj: Dict[str, Any], model: str = "gpt-4o-mini") -> Dict[str, Any]:
-    """
-    Top-level helper used by the dashboard.
-
-    Args:
-        input_obj: dict with keys like "metrics" (parsed prometheus metrics) and "recent_batches" (list)
-        model: preferred model name (used only when OpenAI is available)
-
-    Returns:
-        dict with keys: summary (str), anomalies (list), recommendations (list)
-    """
     if OPENAI_AVAILABLE and OPENAI_API_KEY:
         PROMPT_SUMMARY = """
 You are an AI assistant for a payments treasury system.
@@ -477,32 +457,31 @@ Here is the input:
 {input_json}
 """
         prompt = PROMPT_SUMMARY.format(input_json=json.dumps(input_obj))
-        messages = [{"role": "system", "content": "You are an assistant that outputs JSON with keys: summary, anomalies, recommendations."},
-                    {"role": "user", "content": prompt}]
+        messages = [
+            {"role": "system", "content": "You are an assistant that outputs JSON with keys: summary, anomalies, recommendations."},
+            {"role": "user", "content": prompt}
+        ]
+
         try:
-            if OPENAI_AVAILABLE:
-                openai.api_key = OPENAI_API_KEY  # type: ignore
-                resp = openai.ChatCompletion.create( # type: ignore
-                    model=model,
-                    messages=messages,
-                    temperature=0.0,
-                    max_tokens=600
-                )
-                text = resp["choices"][0]["message"]["content"].strip()
-                try:
-                    parsed = json.loads(text)
-                    return parsed
-                except Exception:
-                    import re
-                    m = re.search(r"(\{[\s\S]*\})", text)
-                    if m:
-                        try:
-                            return json.loads(m.group(1))
-                        except Exception:
-                            pass
-                    return {"summary": text, "anomalies": [], "recommendations": []}
-            else:
-                return _heuristic_generate_insights_obj(input_obj)
+            client = OpenAI(api_key=OPENAI_API_KEY)
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.0,
+                max_tokens=600
+            )
+            text = resp.choices[0].message["content"].strip()
+            try:
+                return json.loads(text)
+            except Exception:
+                import re
+                m = re.search(r"(\{[\s\S]*\})", text)
+                if m:
+                    try:
+                        return json.loads(m.group(1))
+                    except Exception:
+                        pass
+                return {"summary": text, "anomalies": [], "recommendations": []}
         except Exception as e:
             base = _heuristic_generate_insights_obj(input_obj)
             base["summary"] = f"[AI error: {type(e).__name__}] {str(e)}\n\n" + base["summary"]
