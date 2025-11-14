@@ -47,8 +47,8 @@ st.markdown("""
 import re
 import requests
 import os
-
-API_BASE = os.environ.get("API_BASE", "http://localhost:8000")
+# API_BASE = os.environ.get("API_BASE", "http://localhost:8000")
+API_BASE = "https://stablecoin-optimizer.onrender.com"
 METRICS_URL = f"{API_BASE}/metrics"
 
 _METRIC_RE = re.compile(r"^([a-zA-Z0-9_:]+)(?:\{[^}]*\})?\s+([0-9.eE+\-]+)$")
