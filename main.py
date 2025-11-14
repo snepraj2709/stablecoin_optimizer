@@ -138,36 +138,19 @@ def main():
       )
 
     # STEP 2: Optimize normalized transactions
-    print("\n" + "="*80)
     print("READY FOR OPTIMIZER")
-    print("="*80)
-    print(f"\nYou now have {len(normalized_transactions)} normalized transactions.")
     print("STEP 1: Reading normalized transactions from CSV")
-    print("-" * 80)
     reader = TransactionReader()
     transactions = reader.read_from_csv(INPUT_CSV)
-    print(f"✓ Loaded {len(transactions)} transactions\n")
 
-    # 2. Create optimizer with venue catalog (optionally set top_k for per-tx pruning)
     print("STEP 2: Initializing optimizer")
-    print("-" * 80)
     catalog = VenueCatalog()
     optimizer = UnifiedOptimizer(catalog, top_k=None)  # set top_k=int to enable pruning for LP per-tx
-    print(f"✓ Initialized optimizer with {len(catalog.get_all_venues())} venues\n")
-
-    # 3a. Optimize all transactions sequentially (existing behaviour)
-    print("STEP 3a: Optimizing routes (per-transaction LP)")
-    print("-" * 80)
     results_lp = optimizer.optimize_batch(transactions)
     print(f"✓ Completed per-tx optimization: {len(results_lp)} results\n")
 
-    # 3b. Run batched integer MIP (global optimization) — optional but recommended
-    print("STEP 3b: Optimizing routes (batched MIP via OR-Tools CP-SAT)")
-    print("-" * 80)
     try:
-        # Build liquidity map (aggregate per asset)
         liquidity_map = build_liquidity_map_from_catalog(catalog)
-        # Call MIP with tuned params
         mip_res = optimizer.optimize_batch_mip(
             transactions,
             liquidity_available=liquidity_map,
@@ -178,10 +161,9 @@ def main():
 
         if not mip_res.get("feasible", False):
             print("⚠️ MIP returned infeasible or no solution:", mip_res.get("message", "no message"))
-            results_mip = []  # fallback to empty
+            results_mip = [] 
         else:
             print("✓ MIP solver finished. Objective:", mip_res.get("objective_value"))
-            # Convert to OptimizationResult list so exporter can save it identically
             results_mip = mip_selected_to_optimization_results(mip_res, transactions, optimizer)
 
     except RuntimeError as e:
@@ -192,7 +174,6 @@ def main():
 
     # 4. Export results
     print("\nSTEP 4: Exporting results")
-    print("-" * 80)
     exporter = ResultExporter()
     exporter.export_results(results_lp, OUTPUT_CSV)
     print(f"✓ Exported per-tx LP results -> {OUTPUT_CSV}")
@@ -204,11 +185,7 @@ def main():
         print("No MIP results to export (skipped or infeasible).")
 
     # 5. Quick comparison summary (counts + objective)
-    print("\nSUMMARY")
-    print("-" * 80)
-    print(f"Per-tx LP optimized: {len(results_lp)} transactions (exported: {OUTPUT_CSV})")
     if results_mip:
-        print(f"Batched MIP optimized: {len(results_mip)} transactions (exported: {OUTPUT_CSV_MIP})")
         if mip_res and mip_res.get("objective_value") is not None:
             print(f"MIP objective (lower is better): {mip_res['objective_value']}")
     else:

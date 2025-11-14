@@ -34,7 +34,7 @@ class DataLoader:
             'generated': os.path.exists(self.generated_file)
         }
     
-    @st.cache_data(ttl=300)  # Cache for 5 minutes
+    # @st.cache_data(ttl=300)  # Cache for 5 minutes
     def load_optimized_data(_self) -> Optional[pd.DataFrame]:
         """Load optimization results"""
         try:
@@ -52,7 +52,7 @@ class DataLoader:
             st.error(f"Error loading optimized data: {str(e)}")
             return None
     
-    @st.cache_data(ttl=300)
+    # @st.cache_data(ttl=300)
     def load_baseline_data(_self) -> Optional[pd.DataFrame]:
         """Load baseline/normalized data"""
         try:
@@ -64,7 +64,7 @@ class DataLoader:
             st.error(f"Error loading baseline data: {str(e)}")
             return None
     
-    @st.cache_data(ttl=300)
+    # @st.cache_data(ttl=300)
     def load_generated_data(_self) -> Optional[pd.DataFrame]:
         """Load generated transfers data"""
         try:
