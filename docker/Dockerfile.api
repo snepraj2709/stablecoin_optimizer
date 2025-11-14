@@ -1,0 +1,27 @@
+# docker/Dockerfile.api
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# OS deps (adjust if your repo needs others)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc build-essential curl wget ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy only dependency list if present for caching
+COPY requirements.txt /app/requirements.txt
+RUN if [ -f /app/requirements.txt ]; then pip install --no-cache-dir -r /app/requirements.txt; fi
+
+# Fallback: if there's a pyproject or setup, try to install
+COPY pyproject.toml /app/pyproject.toml
+RUN if [ -f /app/pyproject.toml ]; then pip install --no-cache-dir . || true; fi
+
+# Mount the repo at runtime (docker-compose sets volumes)
+# Default command: try to run python module, fallback to uvicorn if an ASGI app exists
+# Expose port for API
+EXPOSE 8000
+
+# Keep container logs unbuffered
+ENV PYTHONUNBUFFERED=1
+
+CMD ["sh", "-c", "python -m api.orchestrator || uvicorn api.orchestrator:app --host 0.0.0.0 --port 8000 --log-level info"]
