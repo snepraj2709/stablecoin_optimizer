@@ -181,6 +181,7 @@ if baseline_df is None:
 if optimized_df is None:
     st.error("⚠️ No optimization results found! Please check your data directory.")
     st.stop()
+analysis_mode="Optimization Comparison"
 
 # # Analysis mode
 # st.sidebar.markdown("---")
