@@ -39,7 +39,7 @@ def _deterministic_hash(s: str) -> int:
     return h
 
 # ----------------- Tiny in-memory TTL cache decorator -----------------
-def cache_result(ttl_seconds: int = 600):
+def cache_result(ttl_seconds: int = 120):
     """
     Simple thread-safe in-memory cache decorator with TTL.
     Attaches `.cache_store` dict and `.cache_hits` counter (dict) to the wrapped function
@@ -442,7 +442,10 @@ def _heuristic_generate_insights_obj(input_obj: Dict[str, Any]) -> Dict[str, Any
     }
 
 # ----------------- Top-level helper used by dashboard -----------------
-@cache_result(ttl_seconds=600)  # default cache TTL 10 minutes
+print("generate_insights CALLED — cache NOT bypassed")
+
+@cache_result(ttl_seconds=120)  # default cache TTL 2 minutes
+
 def generate_insights(input_obj: Dict[str, Any], model: str = "gpt-4o-mini") -> Dict[str, Any]:
     if OPENAI_AVAILABLE and OPENAI_API_KEY:
         PROMPT_SUMMARY = """
