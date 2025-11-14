@@ -349,12 +349,7 @@ def initialize_dashboard():
 
 def main():
     """Main dashboard function."""
-    
-    # Initialize dashboard
-    with st.spinner("Initializing dashboard..."):
-        init_status = initialize_dashboard()
-    
-    # Import modules after initialization
+    # Import modules BEFORE initialization so they're available everywhere
     try:
         from metrics_calculator import MetricsCalculator, get_comparison_metrics, build_baseline_df
         from data_loader import DataLoader, apply_filters, get_filter_options
@@ -362,6 +357,10 @@ def main():
     except ImportError as e:
         st.error(f"Failed to import required modules: {e}")
         st.stop()
+    
+    # Initialize dashboard AFTER imports
+    with st.spinner("Initializing dashboard..."):
+        init_status = initialize_dashboard()
     
     # Check initialization status
     if init_status.get("error"):
