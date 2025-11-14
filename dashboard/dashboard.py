@@ -29,6 +29,36 @@ import numpy as np
 
 # ==================== CONFIGURATION ====================
 
+# Path configuration - MUST BE BEFORE PROJECT IMPORTS
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(BASE_DIR)
+CONFIG_DIR = os.path.join(ROOT_DIR, "config")
+CONFIG_DIR = os.path.abspath(CONFIG_DIR)
+
+# Add to Python path
+sys.path.insert(0, ROOT_DIR)
+
+# Import project modules after path is configured
+try:
+    from metrics_calculator import MetricsCalculator, get_comparison_metrics, build_baseline_df
+    from data_loader import DataLoader, apply_filters, get_filter_options
+    from ai.ai_integration import get_transaction_insights
+except ImportError as e:
+    st.error(f"❌ Failed to import required modules: {e}")
+    st.code(f"""
+    Error: {e}
+    
+    Ensure these files exist:
+    - metrics_calculator.py
+    - data_loader.py
+    - ai/ai_integration.py
+    
+    Current directory: {os.getcwd()}
+    Python path: {sys.path}
+    """)
+    st.stop()
+
+
 # Logger setup
 logger = logging.getLogger("dashboard")
 if not logger.handlers:
@@ -65,6 +95,15 @@ st.markdown("""
 .alert-green {background: #d4edda; padding: 15px; border-left: 4px solid #28a745; margin: 10px 0;}
 .alert-red {background: #f8d7da; padding: 15px; border-left: 4px solid #dc3545; margin: 10px 0;}
 .alert-blue {background: #d1ecf1; padding: 15px; border-left: 4px solid #0c5460; margin: 10px 0;}
+div.stButton > button[kind="primary"] {
+    background-color: #0066cc !important;
+    color: white !important;
+    border: none !important;
+}
+div.stButton > button[kind="primary"]:hover {
+    background-color: #0052a3 !important;
+    color: white !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -349,16 +388,6 @@ def initialize_dashboard():
 
 def main():
     """Main dashboard function."""
-    # Import modules BEFORE initialization so they're available everywhere
-    try:
-        from metrics_calculator import MetricsCalculator, get_comparison_metrics, build_baseline_df
-        from data_loader import DataLoader, apply_filters, get_filter_options
-        from ai.ai_integration import get_transaction_insights
-    except ImportError as e:
-        st.error(f"Failed to import required modules: {e}")
-        st.stop()
-    
-    # Initialize dashboard AFTER imports
     with st.spinner("Initializing dashboard..."):
         init_status = initialize_dashboard()
     
@@ -552,7 +581,7 @@ def render_pipeline_controls(data_dir: str):
         run_direct = st.button(
             "▶️ Optimize",
             help="Generate and optimize transfers",
-            type="primary",
+            # type="primary",
             use_container_width=True
         )
     st.markdown("---")

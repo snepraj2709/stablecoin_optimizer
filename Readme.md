@@ -1,117 +1,53 @@
-# Complete Setup Guide
+# Stablecoin Route Optimization Engine
 
-This guide will walk you through setting up the Stablecoin Routing Optimization Engine from scratch.
+A production-grade optimization system for enterprise stablecoin and fiat payment routing that minimizes transaction costs, reduces settlement times, and maximizes liquidity efficiency through AI-powered insights and mathematical optimization.
 
-## Prerequisites
+## 🎯 Project Objective
 
-- Python 3.9 or higher
-- pip (Python package manager)
-- Git
-- OpenAI API key (required)
-- Google API key (optional)
-- 2GB free disk space
+To optimize enterprise-level stablecoin and fiat payment routing, minimize costs, and improve liquidity efficiency for Roma's clients. The system leverages AI and optimization algorithms to provide actionable insights and automation across treasury operations.
 
-## Step-by-Step Setup
+## 🚀 Live Demo
 
-### 1. Clone or Create Project Directory
+- **API Documentation**: [https://stablecoin-optimizer.onrender.com/docs](https://stablecoin-optimizer.onrender.com/docs)
+- **Interactive Dashboard**: [https://stablecoin-optimizer-dashboard-41a3.onrender.com/](https://stablecoin-optimizer-dashboard-41a3.onrender.com/)
 
-```bash
-# Create project directory
-mkdir stablecoin-optimizer
-cd stablecoin-optimizer
+## 📊 System Architecture
 
-### 3. Install Python Dependencies
+The system employs a modular, production-ready architecture designed for scalability and extensibility:
 
-Create `requirements.txt` with the provided content, then:
+### Core Components
 
-```bash
-# Create virtual environment
-python -m venv venv
+1. **Data Ingestion Layer**
+   - Generates realistic transfers with business context (vendor payments, remittances, payroll)
+   - Production-ready for integration with Roma APIs for real payment and treasury data
 
-# Activate virtual environment
-# On macOS/Linux:
-source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
+2. **Data Normalization Engine**
+   - Maps transaction types, business context, urgency, and user constraints to standardized transaction weights
+   - Creates unified transfer format across cost, time, and risk dimensions
 
-# Upgrade pip
-pip install --upgrade pip
+3. **Optimization Engine**
+   - Single algorithm solving for optimal routing: **Minimize α·cost + β·time + γ·risk**
+   - Implemented using Mixed Integer Programming (MIP) with PuLP solver
+   - Handles hard constraints: maximum cost, settlement time, and slippage thresholds
+   - Context-aware flags: cross-border, high-value, fast settlement requirements
 
-# Install dependencies
-pip install -r requirements.txt
-```
+4. **Treasury Analytics Layer**
+   - Real-time computation of KPIs: idle capital ratio, FX exposure, liquidity buffer utilization
+   - Time-series analysis for performance trending
 
-### 4. Configure Environment Variables
+5. **AI Insight Engine**
+   - Fine-tuned LLM model for treasury intelligence
+   - Generates operational summaries, anomaly detection, and strategic recommendations
+   - Auto-generates compliance notifications and incident reports
 
-```bash
-# Copy template
-cp .env.template .env
+6. **Visualization Layer**
+   - Interactive dashboard (Streamlit/React) for KPI monitoring
+   - Real-time optimization results and treasury state visualization
 
-# Edit .env file
-nano .env  # or use your preferred editor
+### Data Flow Architecture
 
-#start redis in docker
-docker compose up
-
-# start the api server
-python -m api.orchestrator
-
-# start the streamlit dashboard
-streamlit run dashboard/dashboard.py 
-
-
-```
-
-Add your API keys to `.env`:
-
-```bash
-# REQUIRED
-OPENAI_API_KEY=sk-your-actual-openai-key-here
-
-# OPTIONAL (for enhanced features)
-GOOGLE_API_KEY=your-google-key-here
-ANTHROPIC_API_KEY=your-anthropic-key-here
-
-# Application settings
-LOG_LEVEL=INFO
-CACHE_TTL_SECONDS=30
-```
-
-**Getting API Keys:**
-
-- **OpenAI**: https://platform.openai.com/api-keys
-- **Google**: https://makersuite.google.com/app/apikey
-- **Anthropic**: https://console.anthropic.com/
-
-### 7. Generate Dummy Data
-
-```bash
-# Generate 100 sample transfers
-python main.py
-```
-
-This creates:
-- `config/generated_transfers.csv` (100 dummy transfers)
-- `config/normalized_transactions.csv` (100 normalized transfers)
-- `config/optimization_results.json` (100 optimized transfers)
-
-Expected output:
-```
-Generated 100 stablecoin transfer records
-
-Summary Statistics:
-Average transfer amount: $150,450.23
-Average total cost (bps): 32.45
-Average settlement time: 245 seconds
-Settlement success rate: 92.0%
-```
-
-
-
-### Data flow architecture
 ```mermaid
 flowchart TD
-
     %% === 1. RAW INPUTS ===
     subgraph INGEST["1. RAW INPUTS"]
         A1[Stablecoin API] --> N
@@ -160,96 +96,244 @@ flowchart TD
     AIo --> D
 ```
 
+**Pipeline Summary:**
+```
+Raw Inputs (Roma API, CSV, Webhooks)
+    ↓
+[Normalizer] → Uniform schema (Transaction)
+    ↓
+[Adapter] → Enrichment & reshaping (Transfer)
+    ↓
+[Optimizer] → MIP solver with AI logic
+    ↓
+[Analytics / Dashboard] → KPIs & insights
+```
 
-### 8. Test the Optimizer
+## 🗄️ Data Model
 
-#### Option A: Run Demo Script
+### Core Entities
+
+- **Transaction**: Amount, currency, source, destination, rail options, fee estimates, SLA parameters
+- **Route**: Possible paths across stablecoin rails, fiat rails, and custodial accounts
+- **TreasuryState**: Holdings per asset, available liquidity, target buffer ratios
+- **RiskEvent**: Anomaly logs detected by AI Ops assistant
+
+All data is stored locally in the prototype with seamless integration paths for Roma's API infrastructure in production deployment.
+
+## ⚙️ Optimization Logic
+
+### Objective Function
+
+Minimize total transaction cost and expected settlement delay while satisfying liquidity and compliance constraints:
+
+**Minimize: α·cost + β·time + γ·risk**
+
+### Constraints
+
+- Each transaction routed via exactly one valid route
+- Liquidity per asset maintained above minimum threshold
+- Settlement SLA within defined limits
+- Stablecoin/fiat conversions respect regulatory availability by region
+
+**Output**: Routing matrix with cost, time, and risk scores per route
+
+## 🤖 AI Integration
+
+The AI Ops Assistant leverages prompt-engineered LLM modules to:
+
+- Summarize daily treasury performance and highlight anomalies
+- Suggest optimal rebalancing moves and routing policy updates
+- Auto-generate compliance notifications and incident summaries
+- Provide contextual operational intelligence
+
+This component demonstrates an AI-first operational approach applied to treasury ecosystem management.
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | Python (Pandas, PuLP, FastAPI) |
+| **Optimization** | Mixed Integer Programming (MIP) solver |
+| **Dashboard** | Streamlit |
+| **Database** | SQLite (prototype), PostgreSQL (production-ready) |
+| **Caching** | Redis |
+| **LLM Integration** | OpenAI API |
+| **Deployment** | Docker containerization |
+| **API Documentation** | OpenAPI/Swagger |
+
+## 📈 KPIs and Success Metrics
+
+- **Average payout cost reduction** (%)
+- **Settlement time improvement** (%)
+- **Treasury idle capital reduction** (%)
+- **Automated issue resolution rate** (%)
+- **API uptime and response latency**
+
+---
+
+## 🚦 Getting Started
+
+### Prerequisites
+
+- Python 3.9 or higher
+- pip (Python package manager)
+- Docker & Docker Compose
+- Git
+- OpenAI API key
+
+### Installation
+
+#### 1. Clone Repository
+
+```bash
+mkdir stablecoin-optimizer
+cd stablecoin-optimizer
+```
+
+#### 2. Create Virtual Environment
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# macOS/Linux:
+source venv/bin/activate
+# Windows:
+venv\Scripts\activate
+```
+
+#### 3. Install Dependencies
+
+```bash
+# Upgrade pip
+pip install --upgrade pip
+
+# Install requirements
+pip install -r requirements.txt
+```
+
+#### 4. Configure Environment
+
+```bash
+# Copy environment template
+cp .env.template .env
+
+# Edit with your API keys
+nano .env
+```
+
+**Required Configuration:**
+
+```bash
+# REQUIRED
+OPENAI_API_KEY=sk-your-actual-openai-key-here
+
+# OPTIONAL (for enhanced features)
+GOOGLE_API_KEY=your-google-key-here
+ANTHROPIC_API_KEY=your-anthropic-key-here
+
+# Application settings
+LOG_LEVEL=INFO
+CACHE_TTL_SECONDS=30
+```
+
+#### 5. Start Redis
+
+```bash
+docker compose up
+```
+
+#### 6. Generate Sample Data
 
 ```bash
 python main.py
+```
+
+**Output:**
+- `config/generated_transfers.csv` (100 sample transfers)
+- `config/normalized_transactions.csv` (100 normalized transfers)
+- `config/optimization_results.json` (100 optimized routes)
+
+**Expected Summary:**
+```
+Generated 100 stablecoin transfer records
+
+Summary Statistics:
+Average transfer amount: $150,450.23
+Average total cost (bps): 32.45
+Average settlement time: 245 seconds
+Settlement success rate: 92.0%
+```
+
+#### 7. Launch Services
+
+```bash
+# Start API server
+python -m api.orchestrator
+
+# Start dashboard (new terminal)
 streamlit run dashboard/dashboard.py
 ```
 
-Expected output:
-```
-[OPTIMIZER] Initialized StablecoinOptimizer
+#### 8. Verify Installation
 
-[OPTIMIZER] Processing transfer: TEST_001
-  Route: USD -> USDC
-  Amount: 100,000.00
+**API Endpoints:**
+- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+- ReDoc: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-[STEP 1] Compliance verification...
-[STEP 2] Fetching market data...
-[STEP 3] Assessing liquidity...
-[STEP 4] Generating optimal routes...
-[STEP 5] Evaluating route risks...
-[STEP 6] Selecting optimal route...
+**Dashboard:**
+- Streamlit UI: [http://localhost:8501](http://localhost:8501)
 
-[OPTIMIZER] Optimization complete in 245.32ms
-  Selected route cost: 28.45 bps
-  Estimated settlement: 180s
-```
+---
 
-### 9. Start the API Server
-
-```bash
-# Start FastAPI server
-uvicorn api.main:app --reload --port 8000
-```
-
-Expected output:
-```
-INFO:     Uvicorn running on http://127.0.0.1:8000
-INFO:     Application startup complete.
-```
-
-Access the API documentation:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-
-## Verification Checklist
+## ✅ Verification Checklist
 
 - [ ] Virtual environment activated
-- [ ] All dependencies installed
-- [ ] `.env` file configured with API keys
-- [ ] Dummy data generated successfully
-- [ ] Optimizer runs without errors
-- [ ] API server starts successfully
-- [ ] API endpoints respond correctly
-- [ ] Swagger docs accessible
+- [ ] All dependencies installed successfully
+- [ ] `.env` file configured with valid API keys
+- [ ] Redis container running
+- [ ] Sample data generated
+- [ ] API server responding
+- [ ] Dashboard accessible
+- [ ] Swagger documentation loads
 
-## Development Workflow
+---
 
-### Making Changes
+## 🔧 Development Workflow
 
-1. **Create feature branch**
-   ```bash
-   git checkout -b feature/new-feature
-   ```
+### Testing
 
-2. **Make changes**
-   - Edit source files
-   - Add tests
+```bash
+# Run all tests
+pytest
 
-3. **Test changes**
-   ```bash
-   pytest
-   python main.py
-   ```
+# Run with coverage
+pytest --cov=. --cov-report=html
 
-4. **Commit**
-   ```bash
-   git add .
-   git commit -m "Add new feature"
-   ```
+# Run specific test file
+pytest tests/test_optimizer.py
+```
 
-## Performance Optimization
+---
 
-### Enable Caching
+## 🚀 Production Deployment
+
+### Database Migration
+
+Replace SQLite with PostgreSQL:
 
 ```python
-# In optimizer.py
+from sqlalchemy import create_engine
+
+engine = create_engine(os.getenv('DATABASE_URL'))
+```
+
+### Caching Layer
+
+Enable Redis for production performance:
+
+```python
 import redis
 
 redis_client = redis.Redis(
@@ -261,8 +345,9 @@ redis_client = redis.Redis(
 
 ### Parallel Processing
 
+Optimize batch requests:
+
 ```python
-# Optimize multiple transfers in parallel
 import asyncio
 
 results = await asyncio.gather(*[
@@ -271,18 +356,9 @@ results = await asyncio.gather(*[
 ])
 ```
 
-### Database Integration
+### Monitoring & Observability
 
-```python
-# For persistence
-from sqlalchemy import create_engine
-
-engine = create_engine(os.getenv('DATABASE_URL'))
-```
-
-## Monitoring
-
-### Prometheus Metrics
+Integrate Prometheus metrics:
 
 ```python
 from prometheus_client import Counter, Histogram
@@ -297,3 +373,7 @@ optimization_duration = Histogram(
     'Optimization duration'
 )
 ```
+
+---
+
+**Built with ❤️ for enterprise treasury optimization**
