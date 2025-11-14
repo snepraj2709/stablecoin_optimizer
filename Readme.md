@@ -49,6 +49,17 @@ cp .env.template .env
 
 # Edit .env file
 nano .env  # or use your preferred editor
+
+#start redis in docker
+docker compose up
+
+# start the api server
+python -m api.orchestrator
+
+# start the streamlit dashboard
+streamlit run dashboard/dashboard.py 
+
+
 ```
 
 Add your API keys to `.env`:

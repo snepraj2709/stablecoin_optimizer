@@ -16,6 +16,7 @@ from typing import List, Dict, Any, Optional
 import random
 
 logger = logging.getLogger(__name__)
+from normalizer.normalizer_integration import generate_transfers
 
 
 # ============================================================================
@@ -260,21 +261,12 @@ def process_batch_job(batch_id: str, n: int, use_mip: bool, mip_time_limit: int,
         }, redis_conn)
         publish_event(batch_id, "GENERATING", redis_conn=redis_conn)
         
-        # Stage 1: Generate transfers
-        generate_fn, using_fallback = import_with_fallback(
-            "normalizer.normalizer_integration", "generate_transfers", fallback_generate_transfers
-        )
-        
-        if using_fallback:
-            raw_transfers = generate_fn(n, batch_id)
-        else:
-            # Real generate_transfers returns DataFrame, need to adapt
-            try:
-                df = generate_fn(n_transfers=n, output_dir=None, save_csv=False, save_json=False)
-                raw_transfers = df.to_dict('records')
-            except Exception as e:
-                logger.warning(f"Error with real generator: {e}, using fallback")
-                raw_transfers = fallback_generate_transfers(n, batch_id)
+        try:
+            df = generate_transfers(n_transfers=n)
+            raw_transfers = df.to_dict('records')
+        except Exception as e:
+            logger.warning(f"Error with real generator: {e}, using fallback")
+            raw_transfers = fallback_generate_transfers(n, batch_id)
         
         update_batch_state(batch_id, {
             "progress": {"generated": len(raw_transfers), "normalized": 0, "adapted": 0, "optimized": 0}
