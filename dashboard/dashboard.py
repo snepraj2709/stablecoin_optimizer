@@ -542,13 +542,21 @@ def main():
 
 def render_pipeline_controls(data_dir: str):
     """Render pipeline execution controls."""
-    st.markdown("## 🛠️ Pipeline Control")
+
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.markdown("## 🛠️ Transfer generation engine")
     
-    run_direct = st.button(
-        "▶️ Run Pipeline", 
-        help="Generate and optimize transfers",
-        type="primary"
-    )
+    with col2:
+        # Push button down slightly to align with title
+        st.write("")  # Small spacer
+        run_direct = st.button(
+            "▶️ Optimize",
+            help="Generate and optimize transfers",
+            type="primary",
+            use_container_width=True
+        )
+    st.markdown("---")
     # st.caption(f"📁 Output: `{data_dir}`")
     
     if run_direct:
