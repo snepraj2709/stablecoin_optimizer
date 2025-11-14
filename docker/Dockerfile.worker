@@ -1,8 +1,8 @@
-# Dockerfile.dashboard
+# Dockerfile.worker (optional -- you may reuse Dockerfile.api)
 FROM python:3.11-slim
 
 ARG APP_USER=appuser
-ARG APP_UID=1001
+ARG APP_UID=1000
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential curl wget ca-certificates git \
  && rm -rf /var/lib/apt/lists/* \
@@ -12,14 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
-RUN if [ -f /app/requirements.txt ]; then pip install --no-cache-dir -r /app/requirements.txt; else pip install --no-cache-dir streamlit; fi
+RUN if [ -f /app/requirements.txt ]; then pip install --no-cache-dir -r /app/requirements.txt; fi
 
 COPY . /app
 RUN chown -R ${APP_USER}:${APP_USER} /app
 USER ${APP_USER}
 
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8501
 
-# Render will supply $PORT, so we leave CMD as fallback.
-CMD ["sh", "-c", "streamlit run dashboard/dashboard.py --server.port ${PORT:-8501} --server.address 0.0.0.0"]
+# default entrypoint for background work; Render lets you override command to "python api/worker.py"
+CMD ["python", "api/worker.py"]
