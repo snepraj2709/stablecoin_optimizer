@@ -22,7 +22,8 @@ sys.path.append(ROOT_DIR)
 from ai.ai_integration import get_transaction_insights
 
 # Import our custom modules
-from metrics_calculator import MetricsCalculator, get_comparison_metrics
+# NOTE: added build_baseline_df for fallback baseline auto-detection
+from metrics_calculator import MetricsCalculator, get_comparison_metrics, build_baseline_df
 from data_loader import DataLoader, apply_filters, get_filter_options
 
 # Page config
@@ -60,7 +61,8 @@ def fetch_metrics_text(url: str = METRICS_URL, timeout: int = 20) -> str | None:
         if r.status_code == 200:
             return r.text
     except Exception as e:
-        st.warning(f"⚠️ Failed to fetch metrics: {e}")
+        # do not raise here; dashboard will note metrics not available
+        return None
     return None
 
 
@@ -101,9 +103,9 @@ def parse_prometheus_text(text: str) -> dict:
 
 # ----------------=== SIDEBAR ===----------------
 
-st.sidebar.title("📁 Configuration")
+# st.sidebar.title("📁 Configuration")
 
-# Auto-detect latest batch directory under ./config if present
+# # Auto-detect latest batch directory under ./config if present
 def _latest_batch_dir(base: str = "./config") -> str:
     try:
         base_path = Path(base)
@@ -134,14 +136,12 @@ data_dir = st.sidebar.text_input(
 # Prometheus metrics quick panel in sidebar
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📈 Prometheus Metrics")
+
+# prom_metrics default so later code can safely read it
+prom_metrics = {}
 metrics_text = fetch_metrics_text()
 if metrics_text:
-    metrics_text = fetch_metrics_text()
-
-    # call parser only when text exists, otherwise empty dict
-    prom_metrics = parse_prometheus_text(metrics_text) if metrics_text else {}
-    print(f"prom_metrics: {prom_metrics}")
-
+    prom_metrics = parse_prometheus_text(metrics_text)
     if prom_metrics:
         st.sidebar.metric("Batches started", prom_metrics.get("batches_started_total", 0))
         st.sidebar.metric("Batches in progress", prom_metrics.get("batches_in_progress", 0))
@@ -159,33 +159,42 @@ else:
 loader = DataLoader(data_dir)
 
 # Check file status
-st.sidebar.markdown("### 📊 Data Files")
-file_status = loader.check_files_exist()
-for name, exists in file_status.items():
-    icon = "✅" if exists else "❌"
-    st.sidebar.markdown(f"{icon} {name.title()}")
+# st.sidebar.markdown("### 📊 Data Files")
+# file_status = loader.check_files_exist()
+# for name, exists in file_status.items():
+#     icon = "✅" if exists else "❌"
+#     st.sidebar.markdown(f"{icon} {name.title()}")
 
 # Load data
 optimized_df = loader.load_optimized_data()
-baseline_df = loader.load_baseline_data()
+# try loader method first, fallback to auto-built baseline using build_baseline_df
+baseline_df = loader.load_baseline_data() if hasattr(loader, "load_baseline_data") else None
+if baseline_df is None:
+    try:
+        # Build baseline automatically from provided data_dir
+        baseline_guess = build_baseline_df(data_dir)
+        if baseline_guess is not None:
+            baseline_df = baseline_guess
+    except Exception:
+        baseline_df = None
 
 if optimized_df is None:
     st.error("⚠️ No optimization results found! Please check your data directory.")
     st.stop()
 
-# Analysis mode
-st.sidebar.markdown("---")
-st.sidebar.title("🎯 Analysis Mode")
+# # Analysis mode
+# st.sidebar.markdown("---")
+# st.sidebar.title("🎯 Analysis Mode")
 
-if baseline_df is not None:
-    analysis_mode = st.sidebar.radio(
-        "Mode",
-        ["Current Performance", "Optimization Comparison"],
-        help="Compare before/after or view current results"
-    )
-else:
-    analysis_mode = "Current Performance"
-    st.sidebar.info("Only optimized data available")
+# if baseline_df is not None:
+#     analysis_mode = st.sidebar.radio(
+#         "Mode",
+#         ["Current Performance", "Optimization Comparison"],
+#         help="Compare before/after or view current results"
+#     )
+# else:
+#     analysis_mode = "Current Performance"
+#     st.sidebar.info("Only optimized data available")
 
 # Filters
 st.sidebar.markdown("---")
@@ -247,7 +256,7 @@ if baseline_df is not None:
         baseline_df,
         business_types=selected_business_types if 'All' not in selected_business_types else None,
         regions=selected_regions if 'All' not in selected_regions else None,
-        urgency_levels=selected_selected_urgency if 'All' not in selected_urgency else None,
+        urgency_levels=selected_urgency if 'All' not in selected_urgency else None,
         user_tiers=selected_tiers if 'All' not in selected_tiers else None
     )
 else:
@@ -303,44 +312,62 @@ if analysis_mode == "Optimization Comparison" and filtered_baseline is not None:
     with tabs[0]:
         st.header("🎯 Optimization Impact")
         
-        # Calculate comparison
-        calc_baseline = MetricsCalculator(filtered_baseline)
-        metrics_baseline = calc_baseline.get_summary_metrics()
-        
+        # Use get_comparison_metrics helper to compute before/after metrics safely
+        try:
+            comparison = get_comparison_metrics(filtered_baseline, filtered_df) or {}
+        except Exception as e:
+            st.warning(f"Could not compute comparison metrics: {e}")
+            comparison = {}
+
+        # Extract before/after metrics; fallback to older calculations if missing
+        metrics_baseline = comparison.get('before', {})
+        metrics_after = comparison.get('after', {})
+
+        # If get_comparison_metrics returned nothing, fall back to previous approach for baseline & after
+        if not metrics_baseline:
+            try:
+                calc_baseline = MetricsCalculator(filtered_baseline)
+                metrics_baseline = calc_baseline.get_summary_metrics()
+            except Exception:
+                metrics_baseline = {}
+
+        if not metrics_after:
+            try:
+                calc_after = MetricsCalculator(filtered_df)
+                metrics_after = calc_after.get_summary_metrics()
+            except Exception:
+                metrics_after = {}
+
+        # For backward compatibility keep `metrics` (overall) as the optimized summary used elsewhere
+        # but prefer metrics_after for values shown in this tab when available
+        optimized_metrics_local = metrics_after if metrics_after else metrics
+
         # Key improvements
         st.markdown("### 💡 Key Improvements")
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            cost_improvement = metrics['avg_cost_improvement_bps']
-            base = metrics_baseline.get('avg_cost_bps', 0)
-            pct = (cost_improvement / base * 100) if base else 0
-            st.metric("Cost Reduction", f"{cost_improvement:.1f} BPS", f"{pct:.1f}%")
+            # cost improvement: prefer comparison improvements if present, else use avg improvement field
+            cost_improvement_bps = comparison.get('improvements', {}).get('cost_bps')
+            if cost_improvement_bps is None:
+                cost_improvement_bps = optimized_metrics_local.get('avg_cost_improvement_bps', 0.0)
+            base_cost = metrics_baseline.get('avg_cost_bps', 0.0)
+            pct = (cost_improvement_bps / base_cost * 100) if base_cost else 0.0
+            st.metric("Cost Reduction", f"{cost_improvement_bps:.1f} BPS", f"{pct:.1f}%")
         
         with col2:
-            savings = metrics['total_savings_usd']
-            st.metric(
-                "Total Savings",
-                f"${savings:,.2f}",
-                "Saved"
-            )
+            savings = optimized_metrics_local.get('total_savings_usd', 0.0)
+            st.metric("Total Savings", f"${savings:,.2f}", "Saved")
         
         with col3:
-            success_rate = metrics['success_rate_pct']
-            st.metric(
-                "Success Rate",
-                f"{success_rate:.1f}%",
-                f"{success_rate - metrics_baseline.get('success_rate_pct', 100):.1f}pp"
-            )
+            success_rate_after = optimized_metrics_local.get('success_rate_pct', metrics.get('success_rate_pct', 0.0))
+            success_rate_before = metrics_baseline.get('success_rate_pct', 0.0)
+            st.metric("Success Rate", f"{success_rate_after:.1f}%", f"{success_rate_after - success_rate_before:.1f}pp")
         
         with col4:
-            avg_routes = metrics['avg_routes']
-            st.metric(
-                "Avg Routes",
-                f"{avg_routes:.1f}",
-                "Optimized"
-            )
+            avg_routes = optimized_metrics_local.get('avg_routes', metrics.get('avg_routes', 0.0))
+            st.metric("Avg Routes", f"{avg_routes:.1f}", "Optimized")
         
         # Comparison charts
         st.markdown("---")
@@ -348,31 +375,46 @@ if analysis_mode == "Optimization Comparison" and filtered_baseline is not None:
         
         col1, col2 = st.columns(2)
         
+        # Helper function to safely read value
+        def _safe_val(d, key, fallback=0.0):
+            try:
+                v = d.get(key, fallback)
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    return fallback
+                return float(v)
+            except Exception:
+                return float(fallback)
+
         with col1:
             # Cost comparison
+            before_cost = _safe_val(metrics_baseline, 'avg_cost_bps', 0.0)
+            after_cost = _safe_val(optimized_metrics_local, 'avg_cost_bps', 0.0)
             comparison_data = pd.DataFrame({
                 'Metric': ['Before', 'After'],
-                'Cost (BPS)': [metrics_baseline['avg_cost_bps'], metrics['avg_cost_bps']]
+                'Cost (BPS)': [before_cost, after_cost]
             })
-            fig = px.bar(comparison_data, x='Metric', y='Cost (BPS)',
-                        title='Average Cost Comparison',
-                        color='Metric',
-                        color_discrete_map={'Before': '#ff7f0e', 'After': '#2ca02c'})
+            fig = px.bar(
+                comparison_data, x='Metric', y='Cost (BPS)',
+                title='Average Cost Comparison',
+                color='Metric',
+                color_discrete_map={'Before': '#ff7f0e', 'After': '#2ca02c'}
+            )
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Time comparison
+            # Time comparison (minutes)
+            before_time_min = _safe_val(metrics_baseline, 'avg_settlement_time_sec', 0.0) / 60.0
+            after_time_min = _safe_val(optimized_metrics_local, 'avg_settlement_time_sec', 0.0) / 60.0
             comparison_time = pd.DataFrame({
                 'Metric': ['Before', 'After'],
-                'Time (min)': [
-                    metrics_baseline.get('avg_settlement_time_sec', 0)/60,
-                    metrics['avg_settlement_time_sec']/60
-                ]
+                'Time (min)': [before_time_min, after_time_min]
             })
-            fig = px.bar(comparison_time, x='Metric', y='Time (min)',
-                        title='Average Settlement Time Comparison',
-                        color='Metric',
-                        color_discrete_map={'Before': '#ff7f0e', 'After': '#2ca02c'})
+            fig = px.bar(
+                comparison_time, x='Metric', y='Time (min)',
+                title='Average Settlement Time Comparison',
+                color='Metric',
+                color_discrete_map={'Before': '#ff7f0e', 'After': '#2ca02c'}
+            )
             st.plotly_chart(fig, use_container_width=True)
     
     overview_tab = tabs[1]
